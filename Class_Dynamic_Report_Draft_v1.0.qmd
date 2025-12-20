@@ -1,0 +1,1347 @@
+---
+title: "{{params.class_code}} Report {{params.year}}"
+execute: 
+  echo: false # prevents code from showing
+format:
+  pdf:
+    tbl-cap-location: top
+    papersize: a4
+    geometry: margin=1cm
+    keep-tex: true
+    toc: true
+    toc-title: Contents
+    colorlinks: true
+---
+
+# Setup {.hidden}
+
+```{python}
+#| tags: [parameters]
+
+# Define default values for parameters
+class_code = "I10S2-SCI4-5"
+year = 2026
+```
+
+
+```{python}
+# Loading libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+from scipy.stats import norm
+from adjustText import adjust_text
+import contextlib
+import warnings
+from IPython.display import Markdown, display
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from tabulate import tabulate
+import pickle
+```
+
+
+## Variables {.hidden}
+
+```{python}
+# Reading in dataframes required
+# Question substrands (also update yearly and for different year levels)
+maths_substrands = pd.read_csv("PAT_Maths_Year10_Substrands.csv")
+
+# List of students and their grades
+student_CG = pd.read_csv("Student_CG.csv")
+```
+```{python}
+# Getting individual classes for plotting
+# Loading dictionary - call them in the same sequence you saved them as
+with open("class_testscores.pkl", "rb") as f:
+    class_maths = pickle.load(f)
+    class_reading = pickle.load(f)
+# Loading variables
+var_dict_path = 'Variables.pkl'
+with open(var_dict_path, 'rb') as f:
+    loaded_data = pickle.load(f)
+# Access individual DataFrames using their keys
+q_strands_maths = loaded_data['q_strands_maths']
+q_strands_reading = loaded_data['q_strands_reading']
+students_maths_match = loaded_data['students_maths_match']
+students_reading_match = loaded_data['students_reading_match']
+
+
+# # Selecting classes
+df_maths = class_maths[class_code]
+df_reading = class_reading[class_code]
+#df_spelling = class_spelling[class_code]
+```
+
+```{python}
+# Mean and std dev for Australian norms (to be used for bell curved)
+# Maths
+mean_maths = 137.1
+std_maths = 12.4
+
+# Reading
+mean_reading = 140.5
+std_reading = 12.2
+
+# # Spelling
+# mean_spelling = 
+# std_spelling = 
+```
+
+## Functions {.hidden}
+```{python}
+# Function to compare % correct between class and year-level
+def compare_plot(dataframe, class_df, strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
+                test = 'PAT Maths',
+                plot_title = None):
+    """
+    Makes a box-line plot where:
+    - strands appear as translucent bars
+    - year-level % correct appears as a line chart
+    - class % correct as box plot
+
+
+    parameter:
+    - dataframe: maths_substrands
+    - strand_col_name: from dataframe
+    - substrand_col_name: from dataframe
+    - class_df: df of class data (can be class_test for testing)
+    """
+
+    # Getting plot title
+    if plot_title is None:
+        plot_title = f"{test} Question Performance - Year-Level vs {class_df['ClassCode'].iloc[0]}"
+
+    # Calculating class-wise % correct
+    # Get questions as a dataframe
+    #class_subset = class_df.iloc[:, np.r_[16:56]]
+    question_cols = [col for col in class_df.columns if str(col).isdigit()]
+    class_subset = class_df[question_cols]
+    # Calculate percentage of correct responses per question
+    percent_correct = class_subset.apply(lambda col: (col == '✓').sum() / col.notna().sum() * 100).reset_index()
+    percent_correct.rename(columns = {
+        'index': 'Question number',
+        0 : 'Percentage Correct'
+    }, inplace = True)
+    percent_correct['Strand'] = q_strands_maths['Strand']
+
+    # Making variables
+    questions = dataframe['Question number'].astype(int)
+    strands = dataframe[strand_col_name]
+    #substrands = dataframe[substrand_col_name]
+    class_vals = percent_correct['Percentage Correct'].values
+
+    # Get x-axis labels
+    x_labels = dataframe['Question number'].astype(str) + ": " + dataframe[substrand_col_name]
+
+    # Mapping strands to colours 
+    unique_strands = np.unique(strands)
+    strand_colors = plt.cm.tab10(np.linspace(0,1,len(unique_strands)))
+    strand_color_map = {s:c for s,c in zip(unique_strands, strand_colors)}
+    # Getting strands for legend plotting
+    strand_handles = [
+        plt.Rectangle(
+            (0,0),1,1,
+            color=strand_color_map[s],
+            alpha=0.4,
+            label=s
+        )
+        for s in unique_strands
+    ]
+
+    # Setting figure plot area
+    fig, ax = plt.subplots(figsize = (18,9))
+
+    # Drawing translucent bars
+    for i, q in enumerate(questions):
+        strand = strands[i]
+        base = strand_color_map[strand]
+
+        ax.bar(
+            i, 100,
+            color = (*base[:3], 0.18), # making translucent background
+            edgecolor = (*base[:3], 0.5),
+            linewidth = 1.0
+        )
+
+    # Drawing year-level line
+    sns.lineplot(
+        dataframe,
+        x = range(len(questions)),
+        y = "Percentage correct",
+        color = "#375E97", # dark blue
+        alpha = 1.0, # opaque
+        linewidth = 2.0,
+        ax = ax,
+        label = "Year level"
+    )
+
+    # Drawing class barplot
+    ax.bar(
+        range(len(questions)),
+        class_vals,
+        color="#FB6542", # orange
+        alpha = 1.0,
+        width = 0.3, 
+        label = "Class"
+    )
+
+    # Plotting legend boxes
+    # Performance legend (Year vs Class)
+    perf_legend = ax.legend(
+        title = "Performance",
+        loc = "center left",
+        bbox_to_anchor = (1.0, 0.65), # Move to the right
+        frameon = True # Visible box
+    )
+    ax.add_artist(perf_legend)
+    # Strand legend (i.e. the coloured background)
+    strand_legend = ax.legend(
+        handles = strand_handles,
+        title = "Strand",
+        loc="center left",
+        bbox_to_anchor=(1.0, 0.40),
+        frameon=True
+    )
+
+    # Setting x-axis properties
+    ax.set_xticks(range(len(questions)))
+    ax.set_xticklabels(x_labels, rotation=90, ha='right')
+    ax.set_xlim(-0.8, len(questions)-0.2)
+    ax.set_xlabel("Question number: Sub-strand")
+    # Setting y-axis properties
+    ax.set_ylim(0,100)
+    ax.set_ylabel("Percentage Correct")
+    # Set titles
+    ax.set_title(plot_title)
+
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+# Function
+def student_vs_year_score(df1, df2, yearlevel_scores = 'Scale',
+                          student_scores = 'Scale', student_names = 'StudentNameExternal',
+                          title = 'PAT Maths - Student Scores vs Year-Level Scores'):
+    """
+    Makes a plot where each student in the class has their scale score plotted against the year-level's scale score.
+    Year-level medians, and quartiles (10th and 90th, and IQR) are plotted as a line and shaded box respectively.
+
+    Parameters:
+    - df1: dataframe with the year-level scale scores
+    - yearlevel_scores: column with scale score values (should be integers), from df1
+    - df2: dataframe with the student scale scores
+    - student_scores: column from df2 with individual scale scores
+    - student_names: column from df2 with student names
+    """
+
+    # Calculate median and percentiles
+    median = np.median(df1[yearlevel_scores])
+    q1 = np.percentile(df1[yearlevel_scores], 25)
+    q3 = np.percentile(df1[yearlevel_scores], 75)
+    p10 = np.percentile(df1[yearlevel_scores], 10)
+    p90 = np.percentile(df1[yearlevel_scores], 90)
+
+    # Plotting
+    # Setting figure and axis
+    fig, ax = plt.subplots(figsize = (12,6))
+
+    # Plot 10th and 90th percentiles (as shaded boxes)
+    p10p90_span = ax.axhspan(p10, p90, facecolor='lightgrey', alpha=0.5, label="Year-Level p10-p90 Score")
+    # Plot IQR 
+    iqr_span = ax.axhspan(q1, q3, facecolor = 'darkgrey', alpha = 0.8, label = "Year-Level IQR Score")
+    # Plot median line
+    median_line = ax.axhline(y = median, color = 'black', linestyle = '--', label = "Year-Level Median Score")
+
+    # Plot students on x-axis (names will be axis tick labels)
+    ax.scatter(
+        x = range(len(df2)), # Getting the a number of each row of student (will appear evenly spaced)
+        y = df2[student_scores], # get's scale score as vertical axis definitions (i.e. each student will now be (0,125), (1,152), etc.)
+        color = 'red',
+        label = 'Student Score',
+        zorder = 5 # will be plotted last so it overlays the other plot
+    )
+    # Set x-axis ticks and labels
+    ax.set_xticks(range(len(df2))) # sets position of ticks to follow above x-scatter position
+    ax.set_xticklabels(df2[student_names].astype(str), rotation=90, ha='right') # plots student names
+
+    # Add labels and title
+    ax.set_ylabel('Scale Score')
+    ax.set_xlabel('Student')
+    ax.set_title(title)
+
+    # Add legend
+    ax.legend(
+        loc = "center left",
+        bbox_to_anchor = (1.0, 0.65), # move to right
+        frameon = True # add frame
+    )
+
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+# Generates student scores on a bell curve
+def score_bellcurve(dataframe, mean, std, student_scale_col = 'Scale',
+                    title = ""): 
+    """
+    Generates a bellcurve based on Australian norms calulated by ACER.
+    Plots individual student scores on the curve.
+
+    Parameters:
+    - dataframe: the dataframe containing the students and their scale score for a class
+    - student_scale_col: the column in dataframe with the student scale scores
+    - mean: the nation-wide mean calculated by ACER
+    - std: nation-wide standard deviation
+    """
+    # Finding percentiles 
+    # Generating range of values
+    x = np.linspace(mean-4*std, mean+4*std, 2500) # get the lower, upper bounds, and a range of values between the bounds
+    y = norm(loc=mean, scale=std).pdf(x) # calculate the probability density function for each x-value (gives bell shape) based on mean and std
+    # scaling the height of the bell curve
+    y = y * 0.5
+
+    # Turning scale column to numeric so we can drop NaNs
+    dataframe[student_scale_col] = pd.to_numeric(dataframe[student_scale_col], errors='coerce')
+    # Getting student scales and names
+    scores = dataframe[student_scale_col].dropna().to_numpy() # drops NaN values
+    names = dataframe.loc[dataframe[student_scale_col].notna(), 'StudentNameExternal'].tolist() # gets student names as list
+
+    # Calulating probability density function for the curve
+    score_y = norm(loc=mean, scale=std).pdf(scores) * 0.5 # also scale points to ft curve
+
+    # Preparing plot area
+    fig, ax = plt.subplots(figsize=(12, 9))
+    
+    # Plot bell curve
+    plt.plot(x, y, color="blue", label="Bell Curve")
+    plt.axvline(mean, ls="--", color="lightgrey") # Plotting mean line
+
+    # Plot student scatter
+    plt.scatter(scores, score_y, color="red", zorder=5)
+
+    # Getting names as text
+    texts = []
+    for name, sx, sy in zip(names, scores, score_y):
+        txt = ax.text(sx, sy, name, ha='center', fontsize=9)
+        texts.append(txt)
+
+    with contextlib.redirect_stdout(None): # Does not print statements
+        adjust_text(
+            texts,
+            only_move={'points':'y', 'texts':'y'},  # move labels vertically only
+            expand_text=(1.1, 1.2),  # control spacing between labels
+            force_text=0.45, # strength of repulsion
+                #arrowprops=None # no arrows
+            arrowprops=dict( # add arrows. 
+                arrowstyle='-', 
+                color='grey', 
+                lw=0.5, 
+                shrinkA=8, # shrinkA controls how far away the arrow starts from the text. bigger value = further
+                connectionstyle="angle,angleA=0,angleB=90",) # ensures arrows in data coords 
+        )
+
+    # removing y-axis ticks and label
+    plt.gca().set_yticks([])
+    plt.ylabel(None)
+
+    # Formatting
+    plt.xlabel("Nation-wide Scale Scores")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+# Plotting function (Number of students with a specific grade (year-level numbers in the background))
+def plot_CG(year_level_df, class_df, year_CG_col = 'Cumulative Grade', class_CG_col = 'Cumulative Grade',
+            grade_ord = None,
+            plot_title = ""):
+    
+    """
+    Makes box plot displaying the number of students with each cumulative grade in the class.
+
+    Parameters:
+    - year_level_df: dataframe of whole year level
+    - class_df: dataframe of class
+    - year_CG_col: column name of cumulative grades (from year level dataframe)
+    - class_CG_col: column name of cumulative grades (from class dataframe)
+
+    """
+    
+    # Setting default grade order
+    if grade_ord is None:
+        grade_ord = ["A+", "A", "B+", "B", "C+", "C", "D+", "D", "E+", "E"]
+
+    # Counting number of students
+    class_counts = (
+        class_df[class_CG_col]
+        .value_counts()
+        .reindex(grade_ord, fill_value=0)
+        .reset_index()
+    )
+    class_counts.columns = ["Grade", "Count"]
+
+    year_counts = (
+        year_level_df[year_CG_col]
+        .value_counts()
+        .reindex(grade_ord, fill_value=0)
+        .reset_index()
+    )
+    year_counts.columns = ["Grade", "Count"]
+
+    # Set plot area
+    fig, ax = plt.subplots(figsize = (12,8))
+
+    # Drawing bars
+    sns.barplot(
+        data = class_counts,
+        x = "Grade",
+        y="Count",
+        color="#FB6542",  # orange
+        width=0.6,
+        ax=ax,
+        label="Class"
+    )
+    
+    # Set axes
+    ax.set_xlabel("Cumulative Grade")
+    ax.set_ylabel("Number of Students")
+    ax.set_title(plot_title)
+
+    ax.set_ylim(0, class_counts["Count"].max() + 1)
+
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="right")
+    
+    # Plotting legend boxes
+    # Performance legend (Year vs Class)
+    perf_legend = ax.legend(
+        title = "Performance",
+        loc = "center left",
+        bbox_to_anchor = (1.0, 0.65), # Move to the right
+        frameon = True # Visible box
+    )
+    ax.add_artist(perf_legend)
+    # Set titles
+    ax.set_title(plot_title)
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+# Function to flag
+# Flagging student profiles
+def label_kmeans_clusters(
+    df,
+    cluster_col="Cluster",
+    scaled_features=None,
+    labels=("Under-performer", "Typical performer", "High performer"),
+    output_col="Performance Flag"
+):
+    """
+    Dynamically labels K-means clusters based on average performance in standardised feature space.
+
+    Parameters
+    ----------
+    df: dataFrame containing cluster assignments.
+    cluster_col: column name containing K-means cluster labels.
+    scaled_features: features used in K-means AFTER standardisation (e.g. ['PAT Scaled Score_Maths', 'PAT Scaled Score_Reading', 'WAM or GPA'])
+    labels: ordered labels from lowest to highest performance.
+    output_col: name of the output flag column.
+    """
+    # Raise error warning
+    if scaled_features is None:
+        raise ValueError("You must provide the features used for K-means.")
+
+    # Re-standardise to match K-means geometry (re-creates z-score from variables)
+    cluster_space = (
+        df[scaled_features] - df[scaled_features].mean()
+    ) / df[scaled_features].std()
+
+    # Composite performance index (per student)
+    df["_cluster_index"] = cluster_space.mean(axis=1)
+
+    # Rank clusters by average index
+    cluster_perf = (
+        df.groupby(cluster_col)["_cluster_index"]
+          .mean()
+          .sort_values()
+    )
+
+    # Map clusters to labels dynamically
+    label_map = {
+        cluster: labels[i]
+        for i, cluster in enumerate(cluster_perf.index)
+    }
+
+    # Apply labels
+    df[output_col] = df[cluster_col].map(label_map)
+
+    # Cleanup
+    df.drop(columns="_cluster_index", inplace=True)
+
+    return df
+```
+
+{{< pagebreak >}}
+
+# Reporting {.hidden}
+
+```{python}
+# Reporting
+# Get number of students in class
+number_students = len(df_maths)
+
+# Get list of year levels
+stud_year_level = df_maths["StudentYearLevel"].value_counts().to_dict()
+
+# Get number of students in year level
+year_summary = " and ".join(
+    [f"{count} students in Year {year}" for year, count in sorted(stud_year_level.items(), key=lambda x: int(x[0]))]
+)
+
+# dynamic year set
+year = year
+
+# Printing text for report
+preamble_text = f"""\
+
+## Preamble
+
+This document details the performance of students within the class; {class_code} with regards to their PAT Mathematics and Reading performance for the year {year}. Both of these plots are made for relative comparisons with the respective year-levels.
+
+For each test, several plots are provided:
+
+1. The percentage of students with the correct responses to each question
+2. The individual scale score of students compared to the Sirius-wide year-level scale score
+3. Individual scale scores compared to ACER's provided nation-wide year-level norm
+
+## Details
+
+{class_code} has {year_summary}. For a full list of students, please see the final page in the report.
+
+    """
+
+display(Markdown(preamble_text))
+```
+
+{{< pagebreak >}}
+
+# Percentage of students with the correct responses
+
+Here, you will find a barplot corresponding to the percentage of students in the class who answered the question correctly. The school-wide percentage (i.e. percentage of students in the year-level) is shown as a line. 
+Each PAT question is associated with a strand or sub-strand that assesses a student's capability in a specific area.
+
+For more information on these tests, please have a read through of these links:
+
+1. [https://schoolsupport.acer.org/hc/en-au/articles/20279023528601-Getting-started-with-PAT-Maths-4th-Edition](https://schoolsupport.acer.org/hc/en-au/articles/20279023528601-Getting-started-with-PAT-Maths-4th-Edition)
+2. [https://schoolsupport.acer.org/hc/en-au/articles/20277210729753-Getting-started-with-PAT-Reading-5th-Edition](https://schoolsupport.acer.org/hc/en-au/articles/20277210729753-Getting-started-with-PAT-Reading-5th-Edition)
+
+{{< pagebreak >}}
+
+::: {.landscape}
+
+```{python}
+# Calling plot
+# Maths
+compare_plot(dataframe = maths_substrands, class_df = df_maths,
+            strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
+            test = 'PAT Maths', plot_title = None)
+    
+# Reading
+compare_plot(dataframe = q_strands_reading, class_df = df_reading,
+            strand_col_name = 'Strand', substrand_col_name = 'Strand',
+            test = 'PAT Reading', plot_title = None)  
+
+# # Spelling
+# compare_plot(dataframe = q_strands_spelling, class_df = df_spelling,
+#             strand_col_name = 'Strand', substrand_col_name = 'Strand',
+#             test = 'PAT Spelling', plot_title = None)  
+
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Calling plot
+#     # Maths
+#     compare_plot(dataframe = maths_substrands, class_df = df_maths,
+#                  strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
+#                  test = 'PAT Maths', plot_title = None)
+    
+#     # Reading
+#     compare_plot(dataframe = q_strands_reading, class_df = df_reading,
+#                  strand_col_name = 'Strand', substrand_col_name = 'Strand',
+#                  test = 'PAT Reading', plot_title = None)    
+```
+
+:::
+
+{{< pagebreak >}}
+
+# Student Scale Scores
+
+The following plots details the scale score of individual students relative to their year-level. The comparisons presented are (i) against the whole year-level school-wide, and (ii) against the year-level within the respective campus.
+
+Each dot along the x-axis is a student's scale score. The year-level's median scale score is represented by a dashed line and represents the middle point of the cohort's scale score (i.e. the halfway-mark between the top and bottom groups within the cohort). 
+
+The year-level's interquartile range (IQR) is the difference between the 75th and the 25th quartiles. It represents the range of the middle 50% of the dataset. A larger IQR (or in this case, a shaded box), indicates that there is more variability in the data and vice versa. Thus, when an IQR is larger, it can be said that there is a greater range of student scores within the class. To put this within context, it could be possible that there are students with highly varied abilities with regards to the PAT Maths and Reading strands assessed.
+
+p10 and p90 represent the 10th and 90th percentiles of the year-level scores respectively. These percentiles are displayed on the plot to give an idea of the overall spread of values across the year-level.
+
+{{< pagebreak >}}
+
+::: {.landscape}
+
+```{python}
+#| fig-width: 11
+#| fig-height: 7
+#| fig-align: center
+
+# Calling plot
+# Maths
+student_vs_year_score(df1 = students_maths_match, df2 = df_maths,
+                    yearlevel_scores= 'Scale', student_scores= 'Scale',
+                    student_names= 'StudentNameExternal',
+                    title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores'
+)
+
+# Reading
+student_vs_year_score(df1 = students_reading_match, df2 = df_reading,
+                      yearlevel_scores= 'Scale', student_scores= 'Scale',
+                      student_names= 'StudentNameExternal',
+                      title = 'PAT Reading - Student Scores vs School-wide Year-Level Scores'
+) 
+
+# # Spelling
+# student_vs_year_score(df1 = students_spelling_match, df2 = df_spelling,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Spelling - Student Scores vs School-wide Year-Level Scores'
+# ) 
+
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Calling plot
+#     # Maths
+#     student_vs_year_score(df1 = students_maths_match, df2 = df_maths,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores'
+#     )
+#     # Reading
+#     student_vs_year_score(df1 = students_reading_match, df2 = df_reading,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Reading - Student Scores vs School-wide Year-Level Scores'
+#     ) 
+```
+
+## Student Scale Score vs Campus-wide Scores
+
+```{python}
+
+# Getting campus where class is taught
+campuses = df_maths['Campus'].unique()
+
+# Filtering the main dataframe to ony include students at the campus of interest
+campus_set_maths = students_maths_match[students_maths_match['Campus'].isin(campuses)]
+campus_set_reading = students_reading_match[students_reading_match['Campus'].isin(campuses)]
+#campus_set_spelling = students_spelling_match[students_spelling_match['Campus'].isin(campuses)]
+
+# Calling plot
+# Maths
+student_vs_year_score(df1 =campus_set_maths, df2 = df_maths,
+                      yearlevel_scores= 'Scale', student_scores= 'Scale',
+                      student_names= 'StudentNameExternal',
+                      title = 'PAT Maths - Student Scores vs Campus-wide Year-Level Scores'
+)
+
+# Reading
+student_vs_year_score(df1 = campus_set_reading, df2 = df_reading,
+                      yearlevel_scores= 'Scale', student_scores= 'Scale',
+                      student_names= 'StudentNameExternal',
+                      title = 'PAT Reading - Student Scores vs Campus-wide Year-Level Scores'
+)
+
+# # Spelling
+# student_vs_year_score(df1 = campus_set_spelling, df2 = df_spelling,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Spelling - Student Scores vs Campus-wide Year-Level Scores'
+# )
+
+
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Getting campus where class is taught
+#     campuses = df_maths['Campus'].unique()
+#     # Filtering the main dataframe to ony include students at the campus of interest
+#     campus_set_maths = students_maths_match[students_maths_match['Campus'].isin(campuses)]
+#     campus_set_reading = students_reading_match[students_reading_match['Campus'].isin(campuses)]
+
+#     # Calling plot
+#     # Maths
+#     student_vs_year_score(df1 =campus_set_maths, df2 = df_maths,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Maths - Student Scores vs Campus-wide Year-Level Scores'
+#     )
+#     # Reading
+#     student_vs_year_score(df1 = campus_set_reading, df2 = df_reading,
+#                       yearlevel_scores= 'Scale', student_scores= 'Scale',
+#                       student_names= 'StudentNameExternal',
+#                       title = 'PAT Reading - Student Scores vs Campus-wide Year-Level Scores'
+#     )
+```
+
+:::
+
+{{< pagebreak >}}
+
+## Student Scale Score Percentiles
+
+In this section, you will find the students' scale scores plotted alongside an estimated scale score distribution of a representative Australia-wide year-level cohort. Please note that as raw data regarding this cohort is not publically available, the mean and standard deviation of each test were used to estimate the full score distribution.
+
+The bell curve gives an overview on a student's acheivement relative to the wider Australian cohort. Please note however, that the student percentile acheivements are relative to the pre-selected cohort and as such, may not be the most accurate tool to compare between individual students within the class. Please see the section below for more explanation and links.
+
+Additionally, this webpage also contains information on the norms used by ACER:
+
+1. [https://www.acer.org/in/pat/pat-insights/updated-australian-norms](https://www.acer.org/in/pat/pat-insights/updated-australian-norms)
+
+{{< pagebreak >}}
+
+```{python}
+# Calling plot
+# Maths
+score_bellcurve(df_maths, mean=mean_maths, std=std_maths, student_scale_col='Scale',
+                title = "PAT Maths - Student Scale Scores Relative to Australian Norms"
+)
+
+# Reading
+score_bellcurve(df_reading, mean=mean_reading, std=std_reading, student_scale_col='Scale',
+                title = "PAT Reading - Student Scale Scores Relative to Australian Norms"
+)
+
+# # Spelling
+# score_bellcurve(df_spelling, mean=mean_spelling, std=std_spelling, student_scale_col='Scale',
+#                 title = "PAT Spelling - Student Scale Scores Relative to Australian Norms"
+# )
+
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Calling plot
+#     # Maths
+#     score_bellcurve(df_maths, mean=mean_maths, std=std_maths, student_scale_col='Scale',
+#                 title = "PAT Maths - Student Scale Scores Relative to Australian Norms"
+#                 )
+#     # Reading
+#     score_bellcurve(df_reading, mean=mean_reading, std=std_reading, student_scale_col='Scale',
+#                     title = "PAT Reading - Student Scale Scores Relative to Australian Norms"
+#                     )
+```
+
+{{< pagebreak >}}
+
+# Cumulative Grade of Students
+
+As the PAT test is a single-snapshot in time of a student's academic ability, it is important that their cumulative grades are also studied for a better understanding of their academic abilities. Here, the cumulative grade distribution of students within the class is shown. Additionally, the student's marks in relation to their peers school-wide is also plotted. The interpretation for this graphs is similar to that of the scale score graphs previously shown.
+
+A full table of their grades can be viewed in the tables at the end of this document.
+
+```{python}
+# Defining grade order
+grade_ord_year = ["A+", "A", "B+", "B", "C+", "C", "D+", "D", "E+", "E"]
+
+# Get subset for class
+# Converting ID columns to the same type
+student_CG['Student ID'] = student_CG['Student ID'].astype(str)
+df_maths['ID'] = df_maths['ID'].astype(str)
+# Subsetting
+class_CG = student_CG[student_CG['Student ID'].isin(df_maths['ID'])]
+
+# Subsetting year level
+year_level = df_maths['StudentYearLevel'].unique()
+year_CG = student_CG[student_CG['Year Level'].isin(year_level)]
+
+# Subsetting campus (if-required)
+campus = df_maths['ClassCampus'].iloc[0]
+campus_CG = student_CG[student_CG['Year Level'] == campus]
+
+# Plotting bar graph
+plot_CG(year_CG, class_CG, 
+        year_CG_col = 'Cumulative Grade', class_CG_col = 'Cumulative Grade',
+        grade_ord = grade_ord_year, 
+        plot_title = "Cumulative Grade Distribution of the Class"
+)
+
+# Plotting scatter
+student_vs_year_score(df1 = year_CG, df2 = class_CG,
+                      yearlevel_scores = 'WAMorGPA', student_scores = 'WAMorGPA',
+                      student_names= 'Student Name',
+                      title = 'Student WAM/GPA against Year-level'
+)
+
+# # Loop through dictionary of classes
+# for class_code, class_df in class_maths.items():
+#     # Get subset for class
+#     class_CG = student_CG[student_CG['Student ID'].isin(class_df['ID_class'])]
+
+#     # Subsetting year level
+#     year = class_df['StudentYearLevel']
+#     year_CG = student_CG[student_CG['Year Level'] == year]
+
+#     # Subsetting campus (if-required)
+#     campus = class_df['ClassCampus']
+#     campus_CG = student_CG[student_CG['Year Level'] == campus]
+
+#     # Plotting bar graph
+#     plot_CG(year_CG, class_CG, 
+#         year_CG_col = 'Cumulative Grade', class_CG_col = 'Cumulative Grade',
+#         grade_ord = grade_ord_year, 
+#         plot_title = "Cumulative Grade Distribution of the Class")
+
+#     # Plotting scatter
+#     student_vs_year_score(df1 = year_CG, df2 = class_CG,
+#                       yearlevel_scores = 'WAMorGPA', student_scores = 'WAMorGPA',
+#                       student_names= 'Student Name',
+#                       title = 'Student WAM/GPA against Year-level')
+```
+
+{{< pagebreak >}}
+
+# Student Academic Acheivements
+
+To obtain a full picture of the relationship between a student's PAT scores and their WAM/GPA, we will be performing clustering analysis. Specifically, we will be using a clustering method called 'k-means++'. Compared to other clustering algorithms, k-means++ has the advantages of being easy to scale for large datasets, and is computationally efficient. The method is an improvement on the original k-means, allowing for better centroid initialisation and the generation of more stable and interpretable clusters. As each student is assigned to a single cluster, the clusters themselves are also easy to summarise. These properties make k-means++ well-suited for for continuous, standardised achievement measures such as PAT scores and GPA, while producing reproducible and interpretable clusters suitable for educational analysis.
+
+For ease of interpretation, students have been seperated into 3 clusters, (i) high achievers, (ii) typical performers, (iii) under-achievers. To visualise these clusters, a pairplot and a principal component analysis (PCA) plot have been provided. While the cluster patterns of the student profiles may differ between classes, there are several general interpretations that can be made.
+
+To interpret pairplots:
+
+1. If the scatter plot form a diagonal line, there is a relatively strong correlation between the two features. For example, a diagonal line from left to right for PAT Maths Scores and PAT Reading Scores indicate good positive correlation between the test scores. Thus, if a student receives a high score for maths, they are more likely to have received a high score for reading.
+2. If the points are randomly scatter with no observeable pattern, there is likely very little correlation between the two features.
+3. To avoid unnecessary confusion, please disregard the histograms. They simply show the distribution of students in the class.
+
+To interpret PCAs:
+
+1. Principal component loadings have been provided to give context to each of the principal components. As an example:
+
+|       | Maths_Scale    | Reading_Scale    | WAM or GPA    |
+|:-----:|:--------------:|:----------------:|:-------------:|
+|PC1    |   0.615478     |    0.615478      |   0.492316    |
+|PC2    |  -0.348120     |   -0.348120      |   0.870417    |
+
+
+In the above, the loadings for all three metrics in PC1 are positive. This suggests that PC1 captures the overall academic achievement across the students PAT Maths scores, PAT Reading scores, and WAM/GPA. Students with high scores for all three metrics will have higher PC1 scores (i.e. they will be found to the right of the PC1 axis). Conversely, PC2 shows that the PAT Maths and Reading scores are negative relative to the WAM/GPA. This indicates that PC2 captures contrasts between WAM/GPA and the PAT scaled scores, highlighting students whose performance is stronger in one type of assessment relative to the other. Thus, students with a high WAM/GPA and relatively low PAT test scores will have high PC2 scores (i.e. they will be found in the further up the PC2 axis). Overall, we can say that PC1 captures overall academic achievement across all three metrics while PC2 captures differences in relative strength between features. 
+
+Please note that clusters of students in a PC space represent groups with similar academic profiles. Students within a cluster are more alike in performance than those in other cluster.
+**Importantly** PCs do not have inherent meanings and their distances are relative to each other. This provides an idea of how similar/different students' academic profiles are from each other.
+
+**NOTE: Students have also been flagged as high-, typical, or low- achievers in the table provided at the end of this document. The flags correspond to the clusters in these plots.**
+
+Please find some links here for further reading:
+
+1. [https://www.ibm.com/think/topics/k-means-clustering](https://www.ibm.com/think/topics/k-means-clustering)
+2. [https://towardsdatascience.com/k-means-clustering-an-introduction-9825ea998d1e/](https://towardsdatascience.com/k-means-clustering-an-introduction-9825ea998d1e/)
+3. [https://machinelearningmastery.com/pair-plots/](https://machinelearningmastery.com/pair-plots/)
+4. [https://www.ibm.com/think/topics/principal-component-analysis](https://www.ibm.com/think/topics/principal-component-analysis)
+5. [https://www.youtube.com/watch?v=FgakZw6K1QQ](https://www.youtube.com/watch?v=FgakZw6K1QQ)
+
+```{python}
+# Making clustering dataframe
+# Defining keys
+keys = ['ID', 'StudentNameExternal']
+# Adding prefix to non-key columns
+df_maths_prefixed = df_maths.rename(
+    columns=lambda c: f"Maths_{c}" if c not in keys else c
+)
+df_reading_prefixed = df_reading.rename(
+    columns=lambda c: f"Reading_{c}" if c not in keys else c
+)
+# df_spelling_prefixed = df_spelling.rename(
+#     columns=lambda c: f"Spelling_{c}" if c not in keys else c
+# )
+# Merging
+clustering_df = (
+    df_maths_prefixed
+        .merge(df_reading_prefixed, on=keys, how='left')
+        #.merge(df_spelling_prefixed, on=keys, how='left')
+)
+# Subsetting
+clustering_df = clustering_df[['ID', 'StudentNameExternal', 'Maths_StudentYearLevel', 'Maths_Scale', 'Reading_Scale', 
+                            #'Spelling_Scale', 
+                            'Maths_Percentile', 'Reading_Percentile', 
+                            #'Spelling_Percentile'
+]]
+# Adding WAM/GPA
+clustering_df['WAM or GPA'] = clustering_df['ID'].map(
+        class_CG.set_index('Student ID')['WAMorGPA']
+)
+
+
+# Making clustering dataframe
+# Create a copy for analysis (will exclude students with missing data)
+clustering_df_complete = clustering_df.copy()
+
+# Standardising
+features = [
+    'Maths_Scale',
+    'Reading_Scale',
+    #'Spelling_Scale',
+    'WAM or GPA'
+]
+X = clustering_df_complete[features]
+
+# Drop rows with any NaN values for analysis
+X = X.dropna()
+clustering_df_complete = clustering_df_complete.loc[X.index]
+
+# Check if we have any students with complete data
+if len(X) == 0: # If there are no students with all three data points
+    print(f"Note: No students have complete data for analysis. All students marked as 'Insufficient Data'.")
+    clustering_df['Performance Flag'] = 'Insufficient Data'
+    clustering_df['Cluster'] = -1
+else:
+    # Only proceed with scaling and clustering if we have data
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Running k-means++ (only on complete data)
+    if len(clustering_df_complete) >= 3:
+        kmeans = KMeans(n_clusters = 3, init = 'k-means++', random_state=42)
+        clusters = kmeans.fit_predict(X_scaled)
+        clustering_df_complete['Cluster'] = clusters
+        
+        # Flagging clusters
+        clustering_df_complete = label_kmeans_clusters(
+            df = clustering_df_complete,
+            cluster_col = "Cluster",
+            scaled_features = features
+        )
+    else:  # If there are not enough students in the class for clustering
+        clustering_df_complete['Cluster'] = 0
+        clustering_df_complete['Performance Flag'] = 'Insufficient Sample Size'
+        print(f"Note: Class has only {len(clustering_df_complete)} student(s) with complete data. Clustering skipped.")
+
+    # Merge the cluster/flag back to the original clustering_df
+    clustering_df = clustering_df.merge(
+        clustering_df_complete[['ID', 'Cluster', 'Performance Flag']],
+        on='ID',
+        how='left'
+    )
+
+    # Students without complete data will have NaN for Cluster and Performance Flag
+    clustering_df['Performance Flag'] = clustering_df['Performance Flag'].fillna('Insufficient Data')
+    clustering_df['Cluster'] = clustering_df['Cluster'].fillna(-1)
+
+    # Make color map and plots only if we have complete data
+    if len(clustering_df_complete) > 0:
+        flags = clustering_df_complete['Performance Flag'].unique()
+        palette = sns.color_palette("Set1", n_colors=len(flags))
+        flag_colour_map = {flag: color for flag, color in zip(flags, palette)}
+
+        # Plot pairplot (complete data only)
+        sns.pairplot(
+            clustering_df_complete,
+            vars=['Maths_Scale', 'Reading_Scale', 'WAM or GPA'],
+            hue='Performance Flag',
+            palette=flag_colour_map,
+            diag_kind='kde'
+        )
+        plt.show()
+
+        # Plotting PCAs
+        n_students = len(X_scaled)
+        n_features = X_scaled.shape[1]
+        max_components = min(n_students, n_features)
+
+        if max_components >= 2:
+            # Can do 2D PCA
+            pca = PCA(n_components=2)
+            X_pca = pca.fit_transform(X_scaled)
+
+            plt.figure(figsize=(10,8))
+            for flag, color in flag_colour_map.items():
+                mask = clustering_df_complete['Performance Flag'] == flag
+                plt.scatter(
+                    X_pca[mask, 0],
+                    X_pca[mask, 1],
+                    c=[color],
+                    label=flag,
+                    s=50
+                )
+
+            plt.xlabel('PC1')
+            plt.ylabel('PC2')
+            plt.legend(title='Performance Flag')
+            plt.show()
+
+            # Loadings
+            loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1','PC2'])
+            print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+
+        elif max_components == 1:
+            # Can only do 1D PCA
+            pca = PCA(n_components=1)
+            X_pca = pca.fit_transform(X_scaled)
+
+            plt.figure(figsize=(10,8))
+            plt.scatter(X_pca[:, 0], np.zeros_like(X_pca[:, 0]))
+            plt.xlabel('First Principal Component')
+            plt.title('PCA (1D - Limited by sample size)')
+            plt.show()
+
+            # Loadings for 1D case
+            loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1'])
+            print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+    else:
+        print("No students with complete data for visualization")
+
+
+
+
+
+
+# # Standardising
+# features = [
+#     'Maths_Scale', 
+#     'Reading_Scale',
+#     #'Spelling_Scale',
+#     'WAM or GPA'
+# ]
+# X = clustering_df[features]
+
+# # Drop rows with any NaN values in the features
+# X = X.dropna()
+# # Update clustering_df to match (keep only the rows without NaN)
+# clustering_df = clustering_df.loc[X.index]
+
+# scaler = StandardScaler() # Converts each feature to have a mean of 0 and std = 1
+# X_scaled = scaler.fit_transform(X)
+
+# # Running k-means++
+# #kmeans = KMeans(n_clusters = 3, init = 'k-means++', random_state=42)
+# #clusters = kmeans.fit_predict(X_scaled)
+# # # Adding column
+# # clustering_df['Cluster'] = clusters
+
+# # Running k-means++
+# if len(clustering_df) >= 3:  # Only cluster if we have enough students
+#     kmeans = KMeans(n_clusters = 3, init = 'k-means++', random_state=42)
+#     clusters = kmeans.fit_predict(X_scaled)
+#     # Adding column
+#     clustering_df['Cluster'] = clusters
+# else:
+#     # Not enough students for clustering
+#     clustering_df['Cluster'] = 0  # Assign all to cluster 0
+#     print(f"Note: Class has only {len(clustering_df)} student(s). Clustering skipped.")
+
+
+# # Flagging clusters
+# clustering_df = label_kmeans_clusters(
+#     df = clustering_df,
+#     cluster_col = "Cluster",
+#     scaled_features = features
+# )
+# # Making colour map
+# flags = clustering_df['Performance Flag'].unique()
+# palette = sns.color_palette("Set1", n_colors=len(flags))
+# flag_colour_map = {flag: color for flag, color in zip(flags, palette)}
+
+# # Plot pairplot
+# sns.pairplot(
+#     clustering_df,
+#     vars=['Maths_Scale', 'Reading_Scale', 'WAM or GPA'],
+#     hue='Performance Flag',
+#     palette=flag_colour_map,
+#     diag_kind='kde'
+# )
+
+# # Plotting PCAs - dynamically adjust number of components
+# n_students = len(X_scaled)
+# n_features = X_scaled.shape[1]
+# max_components = min(n_students, n_features)
+
+# if max_components >= 2:
+#     # Can do 2D PCA
+#     pca = PCA(n_components=2)
+#     X_pca = pca.fit_transform(X_scaled)
+    
+#     plt.figure(figsize=(10,8))
+#     for flag, color in flag_colour_map.items():
+#         mask = clustering_df['Performance Flag'] == flag
+#         # Plotting
+#         plt.scatter(
+#             X_pca[mask, 0],
+#             X_pca[mask, 1],
+#             c=[color],
+#             label=flag,
+#             s=50
+#             )
+    
+#     plt.xlabel('PC1')
+#     plt.ylabel('PC2')
+#     plt.legend(title='Performance Flag')
+#     plt.show()
+    
+#     # Loadings - now inside the if block
+#     loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1','PC2'])
+#     print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+    
+# elif max_components == 1:
+#     # Can only do 1D PCA - create 1D plot
+#     pca = PCA(n_components=1)
+#     X_pca = pca.fit_transform(X_scaled)
+    
+#     plt.figure(figsize=(10,8))
+#     plt.scatter(X_pca[:, 0], np.zeros_like(X_pca[:, 0]))
+#     plt.xlabel('First Principal Component')
+#     plt.title('PCA (1D - Limited by sample size)')
+#     plt.show()
+    
+#     # Loadings for 1D case
+#     loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1'])
+#     print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+    
+# else:
+#     print(f"Note: Not enough data for PCA (n_samples={n_students})")
+
+# # Plotting PCAs
+# pca = PCA(n_components=2)
+# X_pca = pca.fit_transform(X_scaled)
+
+# plt.figure(figsize=(10,8))
+
+# for flag, color in flag_colour_map.items():
+#     mask = clustering_df['Performance Flag'] == flag
+#     # Plotting
+#     plt.scatter(
+#         X_pca[mask, 0],
+#         X_pca[mask, 1],
+#         c=[color],
+#         label=flag,
+#         s=50
+#     )
+
+
+
+# # Loadings
+# loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1','PC2'])
+# print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+
+
+
+# # Looping
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Making clustering dataframe
+#     clustering_df = df_maths.merge(df_reading, how = 'left', on = ['ID_class', 'StudentNameExternal'], suffixes = ('_Maths', '_Reading'))
+#     # Subsetting
+#     clustering_df = clustering_df[['ID_class', 'StudentNameExternal', 'Scale_Maths', 'Scale_Reading']]
+#     # Adding WAM/GPA
+#     class_CG = student_CG[student_CG['Student ID'].isin(class_df['ID_class'])]
+#     clustering_df['WAM or GPA'] = clustering_df['ID_class'].map(
+#         class_CG.set_index('Student ID')['WAMorGPA']
+#     )
+
+#     # Standardising
+#     features = ['Scale_Maths', 'Scale_Reading', 'WAM or GPA']
+#     X = clustering_df[features]
+
+#     scaler = StandardScaler() # Converts each feature to have a mean of 0 and std = 1
+#     X_scaled = scaler.fit_transform(X)
+
+#     # Running k-means++
+#     kmeans = KMeans(n_clusters = 3, init = 'k-means++', random_state=42)
+#     clusters = kmeans.fit_predict(X_scaled)
+
+#     clustering_df['Cluster'] = clusters
+
+#     # Flagging clusters
+#     clustering_df = label_kmeans_clusters(
+#         df = clustering_df,
+#         cluster_col = "Cluster",
+#         scaled_features = features
+#     )
+#     # Making colour map
+#     flags = clustering_df['Performance Flag'].unique()
+#     palette = sns.color_palette("Set1", n_colors=len(flags))
+#     flag_colour_map = {flag: color for flag, color in zip(flags, palette)}
+
+#     # Plot pairplot
+#     sns.pairplot(
+#         clustering_df,
+#         vars=['PAT Scaled Score_Maths', 'PAT Scaled Score_Reading', 'WAM or GPA'],
+#         hue='Performance Flag',
+#         palette=flag_colour_map,
+#         diag_kind='kde'
+#     )
+
+#     # Plotting PCAs
+#     pca = PCA(n_components=2)
+#     X_pca = pca.fit_transform(X_scaled)
+
+#     plt.figure(figsize=(10,8))
+
+#     for flag, color in flag_colour_map.items():
+#         mask = clustering_df['Performance Flag'] == flag
+#         # Plotting
+#         plt.scatter(
+#             X_pca[mask, 0],
+#             X_pca[mask, 1],
+#             c=[color],
+#             label=flag,
+#             s=50
+#         )
+
+#     plt.xlabel('PC1')
+#     plt.ylabel('PC2')
+#     plt.legend(title='Performance Flag')
+#     plt.show()
+
+#     # Loadings
+#     loadings = pd.DataFrame(pca.components_, columns=features, index=['PC1','PC2'])
+#     print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
+```
+
+{{< pagebreak >}}
+
+# Full Student List
+
+The following two tables detail individual raw scores, scale scores, and percentile rankings nationally.
+
+Please note that for the 'percentiles' column, student scores are compared to an ACER-selected student cohort that represents all Australian students. Individual students are ranked relative to this cohort. Due to the relative ranking of students, their percentile ranks cannot be used year-on-year to compare progress and acheivements. For further information, please refer to: ACER's Resource Library.
+
+As a starting point, please find some helpful links here:
+
+1. [https://schoolsupport.acer.org/hc/en-au/articles/28697383197849-What-are-percentiles](https://schoolsupport.acer.org/hc/en-au/articles/28697383197849-What-are-percentiles)
+2. [https://schoolsupport.acer.org/hc/en-au/articles/11231044555279-Norms-and-reference-groups](https://schoolsupport.acer.org/hc/en-au/articles/11231044555279-Norms-and-reference-groups)
+
+**NOTE:** Students with blank entries in their 'Scale', and 'Percentile' cells, do not have results associated with them.
+
+::: {.landscape}
+
+```{python}
+#| tbl-cap: "Class List"
+#| tbl-colwidths: true
+
+# Fixing table
+# For object/string columns, replace nana with ""
+obj_cols = clustering_df.select_dtypes(include='object').columns
+clustering_df[obj_cols] = clustering_df[obj_cols].fillna("")
+# For numeric columns, replace NaN with a display-friendly blank (for printing only)
+num_cols = clustering_df.select_dtypes(include=['number']).columns
+clustering_df[num_cols] = clustering_df[num_cols].apply(
+    lambda x: x.map('{:.0f}'.format) if x.notna().all() else x.map(lambda v: '' if pd.isna(v) else f'{v:.0f}')
+)
+
+# Drop 'Cluster column'
+clustering_df.drop(columns=['Cluster'], inplace=True)
+
+# Renaming columns
+clustering_df.rename(columns={
+    'ID': 'Student ID',
+    'StudentNameExternal': 'Student Name',
+    'Maths_StudentYearLevel': 'Year Level',
+    'Maths_Scale': 'PAT Maths Scale Score',
+    'Reading_Scale': 'PAT Reading Scale Score',
+    #'Spelling_Scale': 'PAT Spelling Scale Score'
+    'Maths_Percentile': 'PAT Maths Percentile',
+    'Reading_Percentile': 'PAT Reading Percentile',
+    #'Spelling_Percentile':' PAT Spelling Percentile',
+    'Performance Flag': 'Student Achievement'}, 
+    inplace=True
+)
+
+# Printing table
+clustering_df.style.set_table_styles([
+    {'selector': 'th', 'props': [('text-align', 'center')]},
+]).hide(axis="index")
+
+# # Looping
+# for class_code in class_maths.keys():
+#     # Get dataframe for the class
+#     df_maths = class_maths[class_code]
+#     df_reading = class_reading[class_code]
+
+#     # Making clustering dataframe
+#     clustering_df = df_maths.merge(df_reading, how = 'left', on = ['ID_class', 'StudentNameExternal'], suffixes = ('_Maths', '_Reading'))
+#     # Subsetting
+#     clustering_df = clustering_df[['ID_class', 'StudentNameExternal', 'StudentYearLevel_Maths', 'Scale_Maths', 'Scale_Reading', 'Percentile_Maths', 'Percentile_Reading']]
+#     # Adding WAM/GPA
+#     class_CG = student_CG[student_CG['Student ID'].isin(class_df['ID_class'])]
+#     clustering_df['WAM or GPA'] = clustering_df['ID_class'].map(
+#         class_CG.set_index('Student ID')['WAMorGPA']
+#     )
+#     clustering_df['Cumulative Grade'] = clustering_df['Student ID'].map(
+#         class_CG.set_index('Student ID')['Cumulative Grade']
+#         )
+
+#     # Standardising
+#     features = ['Scale_Maths', 'Scale_Reading', 'WAM or GPA']
+#     X = clustering_df[features]
+
+#     scaler = StandardScaler() # Converts each feature to have a mean of 0 and std = 1
+#     X_scaled = scaler.fit_transform(X)
+
+#     # Running k-means++
+#     kmeans = KMeans(n_clusters = 3, init = 'k-means++', random_state=42)
+#     clusters = kmeans.fit_predict(X_scaled)
+
+#     clustering_df['Cluster'] = clusters
+
+#     # Flagging clusters
+#     clustering_df = label_kmeans_clusters(
+#         df = clustering_df,
+#         cluster_col = "Cluster",
+#         scaled_features = features
+#     )
+
+#     # Fixing table
+#     # For object/string columns, replace nana with ""
+#     obj_cols = clustering_df.select_dtypes(include='object').columns
+#     clustering_df[obj_cols] = clustering_df[obj_cols].fillna("")
+#     # For numeric columns, replace NaN with a display-friendly blank (for printing only)
+#     num_cols = clustering_df.select_dtypes(include=['number']).columns
+#     clustering_df[num_cols] = clustering_df[num_cols].apply(
+#         lambda x: x.map('{:.0f}'.format) if x.notna().all() else x.map(lambda v: '' if pd.isna(v) else f'{v:.0f}')
+#     )
+
+#     # Drop 'Cluster column'
+#     clustering_df.drop({columns='Cluster'}, inplace=True)
+
+#     # Renaming columns
+#     clustering_df.rename(columns={
+#         'ID_class': 'Student ID',
+#         'StudentNameExternal': 'Student Name',
+#         'StudentYearLevel_Maths': 'Year Level',
+#         'Scale_Maths': 'PAT Maths Scale Score',
+#         'Scale_Reading': 'PAT Reading Scale Score',
+#         'Percentile_Maths': 'PAT Maths Percentile',
+#         'Percentile_Reading': 'PAT Reading Percentile',
+#         'Performance Flag': 'Student Achievement'}, 
+#         inplace=True
+#     )
+
+#     # Printing table
+#     clustering_df.style.set_table_styles([
+#         {'selector': 'th', 'props': [('text-align', 'center')]},
+#     ]).hide(axis="index")
+```
