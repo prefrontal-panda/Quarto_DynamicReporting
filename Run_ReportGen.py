@@ -32,8 +32,8 @@ for index, class_code in enumerate(class_maths.keys(), start=1): # Start count f
     # Print progress note
     print(f"Processing {index}/{len(class_maths)}: {class_code} -> {output_file}") # Printing index number and class being processed
 
-    # Create a temporary qmd file with updated parameters
-    temp_qmd = "temp_class_report.qmd"
+    # Create a temporary qmd file for each class
+    temp_qmd = f"temp_{safe_class_code}.qmd"
 
     # Replace the default parameter values in Python code
     modified_content = re.sub(
@@ -62,23 +62,40 @@ for index, class_code in enumerate(class_maths.keys(), start=1): # Start count f
     # Write temporary file
     with open(temp_qmd, "w") as f:
         f.write(modified_content)
-    
-    # Get output path (to save to correct directory)
-    output_path = reports_dir / output_file
-    
-    # Render without parameters
+        
+    # Render without --output flags first then move the file
     subprocess.run([
         "quarto", "render", temp_qmd,
         "--to", "pdf",
-        "--output", output_path,
     ], check=True)
+
+    # Creating PDF as temp_{safe_class_code}.pdf in current directory
+    temp_pdf = Path(f"temp_{safe_class_code}.pdf")
+    final_pdf = reports_dir / output_file
     
+    if temp_pdf.exists():
+        import shutil
+        shutil.move(str(temp_pdf), str(final_pdf))
+        print(f"  ✓ Moved to: {final_pdf}\n")
+    else:
+        print(f"  ✗ PDF not found: {temp_pdf}\n")
     print(f"Generated report for {class_code}")
 
-# Clean up temp file
-import os
-if os.path.exists("temp_class_report.qmd"):
-    os.remove("temp_class_report.qmd")
+    # Clean up temp qmd
+    if Path(temp_qmd).exists():
+        Path(temp_qmd).unlink()
+
+    # Remove 'temp_classcode_file' folders
+    temp_files_dir = Path(f"temp_{safe_class_code}_files")
+    if temp_files_dir.exists():
+        shutil.rmtree(temp_files_dir)
+
+    # Remove '.tex' files
+    temp_tex = Path(f"temp_{safe_class_code}.tex")
+    if temp_tex.exists():
+        temp_tex.unlink()
+
+    print(f"Generated report for {class_code}")
 
 
 # # Read the template file
