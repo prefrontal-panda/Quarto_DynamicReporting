@@ -6,21 +6,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
 import pickle
+from rapidfuzz import process, fuzz
 
 # # ---------------------------------------------------------------
 # # LOADING DATAFRAMES
 # # ---------------------------------------------------------------
 
-# Main PAT Maths results dataframe
-data_maths = pd.read_excel("C:/Users/Debbie.Chong/Downloads/pat-maths-4th-edition-test-10-19122025-075235.xlsx")
+# PAT Maths results
+data_maths_y7 = pd.read_excel("PAT_ReportGen_Files/PAT_Maths_Year7.xlsx")
+data_maths_y8 = pd.read_excel("PAT_ReportGen_Files/PAT_Maths_Year8.xlsx")
+data_maths_y9 = pd.read_excel("PAT_ReportGen_Files/PAT_Maths_Year9.xlsx")
+data_maths_y10 = pd.read_excel("PAT_ReportGen_Files/PAT_Maths_Year10.xlsx")
+
 # PAT Reading results
-data_reading = pd.read_excel("C:/Users/Debbie.Chong/Downloads/pat-reading-5th-edition-test-10-19122025-075129.xlsx")
+data_reading_y7 = pd.read_excel("PAT_ReportGen_Files/PAT_Reading_Year7.xlsx")
+data_reading_y8 = pd.read_excel("PAT_ReportGen_Files/PAT_Reading_Year8.xlsx")
+data_reading_y9 = pd.read_excel("PAT_ReportGen_Files/PAT_Reading_Year9.xlsx")
+data_reading_y10 = pd.read_excel("PAT_ReportGen_Files/PAT_Reading_Year10.xlsx")
+
+# Question substrands (also update yearly and for different year levels)
+maths_substrands_y7 = pd.read_csv("PAT_ReportGen_Files/PAT_Maths_Year7_Substrands.csv")
+maths_substrands_y8 = pd.read_csv("PAT_ReportGen_Files/PAT_Maths_Year8_Substrands.csv")
+maths_substrands_y9 = pd.read_csv("PAT_ReportGen_Files/PAT_Maths_Year9_Substrands.csv")
+maths_substrands_y10 = pd.read_csv("PAT_ReportGen_Files/PAT_Maths_Year10_Substrands.csv")
 
 # Master list of students (please update this yearly)
 class_list = pd.read_csv("2025_StudentClassList.csv") #2025 class list as an example
-
-# Question substrands (also update yearly and for different year levels)
-maths_substrands = pd.read_csv("PAT_Maths_Year10_Substrands.csv")
 
 # List of students and their grades
 student_CG = pd.read_csv("Student_CG.csv")
@@ -29,6 +40,46 @@ student_CG = pd.read_csv("Student_CG.csv")
 # # ---------------------------------------------------------------
 # # FORMATTING DATAFRAMES
 # # ---------------------------------------------------------------
+
+# NOTE: COULD TRY TO USE THESE IN A DICTIONARY/LIST FORMAT
+
+# Making initial dataframes
+# Maths question strands
+q_strands_maths_y7 = data_maths_y7.iloc[2:6,np.r_[0,13:53]]
+q_strands_maths_y8 = data_maths_y8.iloc[2:6,np.r_[0,13:53]]
+q_strands_maths_y9 = data_maths_y9.iloc[2:6,np.r_[0,13:53]]
+q_strands_maths_y10 = data_maths_y10.iloc[2:6,np.r_[0,13:53]]
+
+# Maths dataframe
+students_maths_y7 = data_maths_y7.drop(data_maths_y7.index[0:10])
+students_maths_y8 = data_maths_y8.drop(data_maths_y8.index[0:10])
+students_maths_y9 = data_maths_y9.drop(data_maths_y9.index[0:10])
+students_maths_y10 = data_maths_y10.drop(data_maths_y10.index[0:10])
+
+# Reading question strands
+q_strands_reading_y7 = data_reading_y7.iloc[2:6,np.r_[0,13:48]]
+q_strands_reading_y8 = data_reading_y8.iloc[2:6,np.r_[0,13:47]]
+q_strands_reading_y9 = data_reading_y9.iloc[2:6,np.r_[0,13:48]]
+q_strands_reading_y10 = data_reading_y10.iloc[2:6,np.r_[0,13:48]]
+
+# Reading dataframe
+students_reading_y7 = data_reading_y7.drop(data_reading_y7.index[0:10])
+students_reading_y8 = data_reading_y8.drop(data_reading_y8.index[0:10])
+students_reading_y9 = data_reading_y9.drop(data_reading_y9.index[0:10])
+students_reading_y10 = data_reading_y10.drop(data_reading_y10.index[0:10])
+
+# Forming strand dataframes
+# Maths
+strand_key_maths_y7 = data_maths_y7.iloc[2:8,np.r_[54:56]]
+strand_key_maths_y8 = data_maths_y8.iloc[2:8,np.r_[54:56]]
+strand_key_maths_y9 = data_maths_y9.iloc[2:8,np.r_[54:56]]
+strand_key_maths_y10 = data_maths_y10.iloc[2:8,np.r_[54:56]]
+
+# Reading
+strand_key_reading_y7 = data_reading_y7.iloc[2:6,np.r_[49:51]]
+strand_key_reading_y8 = data_reading_y8.iloc[2:6,np.r_[48:50]]
+strand_key_reading_y9 = data_reading_y9.iloc[2:6,np.r_[49:51]]
+strand_key_reading_y10 = data_reading_y10.iloc[2:6,np.r_[49:51]]
 
 # # PAT Spelling
 # data_spelling = pd.read_excel()
@@ -57,58 +108,42 @@ student_CG = pd.read_csv("Student_CG.csv")
 # students_spelling.reset_index(drop = True, inplace=True)
 
 
-# Setting variables for cleaning and formatting
-# Question columns
-q_end_col_maths = 53
-q_end_col_reading = 48
-# Applying
-# Maths
-q_strands_maths = data_maths.iloc[2:6,np.r_[0,13:q_end_col_maths]]
-students_maths = data_maths.drop(data_maths.index[0:10])
-# Reading
-q_strands_reading = data_reading.iloc[2:6,np.r_[0,13:q_end_col_reading]]
-students_reading = data_reading.drop(data_reading.index[0:10])
-
-# Making strand dataframes
-# Strand variables
-strand_end_row_maths = 8
-strand_end_row_reading = 6
-strand_start_col_maths = 54
-strand_end_col_maths = 56
-strand_start_col_reading = 49
-strand_end_col_reading = 51
-
-# Make small dataframe of strands
-# Maths
-strand_key_maths = data_maths.iloc[2:strand_end_row_maths,np.r_[strand_start_col_maths:strand_end_col_maths]]
-# Reading
-strand_key_reading = data_reading.iloc[2:strand_end_row_reading,np.r_[strand_start_col_reading:strand_end_col_reading]]
-
-
 # # ---------------------------------------------------------------
 # # RESET QUESTION COLUMNS
 # # ---------------------------------------------------------------
 
-# Assigning variables
-student_q_col_end_maths = 53
-student_q_col_end_reading = 48
-q_strands_maths_endcol = 41
-q_strands_reading_endcol = 36
-
-
+# Set to question number
 # Maths
-students_maths.iloc[0,13:student_q_col_end_maths] = q_strands_maths.iloc[3,1:q_strands_maths_endcol] # setting to question number
-# Changing column names of student dataset
-students_maths.columns = students_maths.iloc[0] # getting first row
-students_maths.drop(students_maths.index[0], inplace=True) # dropping first row
-students_maths.reset_index(drop = True, inplace=True)
+students_maths_y7.iloc[0,13:53] = q_strands_maths_y7.iloc[3,1:41]
+students_maths_y8.iloc[0,13:53] = q_strands_maths_y8.iloc[3,1:41]
+students_maths_y9.iloc[0,13:53] = q_strands_maths_y9.iloc[3,1:41]
+students_maths_y10.iloc[0,13:53] = q_strands_maths_y10.iloc[3,1:41]
 
 # Reading
-students_reading.iloc[0,13:student_q_col_end_reading] = q_strands_reading.iloc[3,1:q_strands_reading_endcol]
+students_reading_y7.iloc[0,13:48] = q_strands_reading_y7.iloc[3,1:36]
+students_reading_y8.iloc[0,13:47] = q_strands_reading_y8.iloc[3,1:35]
+students_reading_y9.iloc[0,13:48] = q_strands_reading_y9.iloc[3,1:36]
+students_reading_y10.iloc[0,13:48] = q_strands_reading_y10.iloc[3,1:36]
+
 # Changing column names
-students_reading.columns = students_reading.iloc[0] # getting first row
-students_reading.drop(students_reading.index[0], inplace=True) # dropping first row
-students_reading.reset_index(drop = True, inplace=True)
+# Function
+def change_q_col_names(dataframe, row_to_change = 0):
+    dataframe.columns = dataframe.iloc[row_to_change] # getting first row
+    dataframe.drop(dataframe.index[row_to_change], inplace = True) # dropping first row
+    dataframe.reset_index(drop = True, inplace = True)
+
+    #return dataframe (use this for no in-place change and call it like new_var = func(old_var))
+# Applying
+# Maths
+change_q_col_names(students_maths_y7, row_to_change= 0) # Modifying in-place
+change_q_col_names(students_maths_y8, row_to_change= 0)
+change_q_col_names(students_maths_y9, row_to_change= 0)
+change_q_col_names(students_maths_y10, row_to_change= 0)
+# Reading
+change_q_col_names(students_reading_y7, row_to_change= 0)
+change_q_col_names(students_reading_y8, row_to_change= 0)
+change_q_col_names(students_reading_y9, row_to_change= 0)
+change_q_col_names(students_reading_y10, row_to_change= 0)
 
 
 # # ---------------------------------------------------------------
@@ -135,9 +170,17 @@ def clean_df(df):
     return df
 
 # Applying
-students_maths_clean = clean_df(students_maths)
-students_reading_clean = clean_df(students_reading)
-#students_spelling_clean = clean_df(students_spelling)
+# Maths
+students_maths_clean_y7 = clean_df(students_maths_y7)
+students_maths_clean_y8 = clean_df(students_maths_y8)
+students_maths_clean_y9 = clean_df(students_maths_y9)
+students_maths_clean_y10 = clean_df(students_maths_y10)
+
+# Reading
+students_reading_clean_y7 = clean_df(students_reading_y7)
+students_reading_clean_y8 = clean_df(students_reading_y8)
+students_reading_clean_y9 = clean_df(students_reading_y9)
+students_reading_clean_y10 = clean_df(students_reading_y10)
 
 
 # # ---------------------------------------------------------------
@@ -145,159 +188,269 @@ students_reading_clean = clean_df(students_reading)
 # # ---------------------------------------------------------------
 
 # Checking that student ID is the same as in Synergetic (we merge based on studnt name and year level)
-def match_student_ids(df1, df2, name_col_df1='Full Name', name_col_df2='StudentNameExternal',
-                      year_col_df1='Year level (current)', year_col_df2='StudentYearLevel',
-                      id_col_name='ID', insert_pos=2):
+def match_student_ids(df_students, df_master,
+                      student_name_col='Full Name',
+                      master_name_col='StudentNameExternal',
+                      year_col_students='Year level (current)',
+                      year_col_master='StudentYearLevel',
+                      id_col_master='ID',
+                      fuzzy_threshold=85,
+                      insert_pos=2):
+    
     """
-    Merges student IDs from df2 into df1 based on both the student's first and last name and the DOB.
+    Merges student IDs from the masterlist to the student dataframe based on both the student's first and last name and the DOB.
     Returns the first dataframe with an aditional ID column (based on Synergetic data).
     """
-    
-    # Preparing first dataframe
-    df1 = df1.copy()
-    df1['year_clean'] = df1[year_col_df1].astype(str).str.extract(r'(\d+)').astype(int) # Getting year level only (stripping characters)
-    # Getting all parts of the name
-    df1['name_parts'] = df1[name_col_df1].str.strip().str.split()
-    df1['first_name']  = df1['name_parts'].str[0].str.lower() # Strips first whitespace to get first name
-    df1['middle_name'] = df1['name_parts'].apply(
-        lambda x: " ".join(x[1:-1]).lower() if len(x) > 2 else "" # Joining the middle two sub-strings to get the middle name, else return blank string
-    )
-    df1['last_name']   = df1['name_parts'].str[-1].str.lower() # strips last whitespace to get last name
 
-    # Preparing second dataframe
-    df2 = df2.copy()
-    # df2['name_original'] = df2[name_col_df2], # Keeping original names for class matching
-    df2['name_parts'] = df2[name_col_df2].str.strip().str.split() # Getting all parts of the name
-    df2['first_name_synergetic']  = df2['name_parts'].str[0].str.lower()
-    df2['middle_name_synergetic'] = df2['name_parts'].apply(
-        lambda x: " ".join(x[1:-1]).lower() if len(x) > 2 else ""
-    )
-    df2['last_name_synergetic'] = df2['name_parts'].str[-1].str.lower()
+    df = df_students.copy()
+    master = df_master.copy()
 
-    # Keeping clean lookup dataframe
-    df2_lookup = df2[[name_col_df2, 'first_name_synergetic', 'middle_name_synergetic', 
-                     'last_name_synergetic', year_col_df2, id_col_name, 'ClassCampus']
-    ].drop_duplicates()
-    
-    # Merging dataframes
-    merged_df = df1.merge(
-        df2_lookup,
-        left_on = ['first_name', 'last_name', 'year_clean'],
-        right_on = ['first_name_synergetic', 'last_name_synergetic', year_col_df2],
-        how = 'left'
+    # --- Clean year columns ---
+    df['year_clean'] = df[year_col_students].astype(str).str.extract(r'(\d+)').astype(int)
+    master[year_col_master] = master[year_col_master].astype(int)
+
+    # --- Split names ---
+    df['first'] = df[student_name_col].str.split().str[0].str.lower()
+    df['middle'] = df[student_name_col].str.split().apply(lambda x: " ".join(x[1:-1]).lower() if len(x) > 2 else "")
+    df['last'] = df[student_name_col].str.split().str[-1].str.lower()
+
+    master['first'] = master[master_name_col].str.split().str[0].str.lower()
+    master['middle'] = master[master_name_col].str.split().apply(lambda x: " ".join(x[1:-1]).lower() if len(x) > 2 else "")
+    master['last'] = master[master_name_col].str.split().str[-1].str.lower()
+
+    # ------------------------------------------------------------------
+    # Collapse masterlist to ONE row per name+year
+    # ------------------------------------------------------------------
+    master_unique = (
+        master
+        .groupby(['first', 'last', year_col_master])
+        .agg({
+            id_col_master: lambda x: x.iloc[0] if x.nunique() == 1 else pd.NA,
+            master_name_col: 'first'
+        })
+        .reset_index()
     )
 
-    # If students have both first and last names, use the middle names for better match
-    mask = merged_df.groupby(['first_name', 'last_name', 'year_clean'])[id_col_name].transform('count') > 1
+    # --- Safe merge (cannot duplicate rows anymore) ---
+    merged_df = df.merge(
+        master_unique,
+        left_on=['first', 'last', 'year_clean'],
+        right_on=['first', 'last', year_col_master],
+        how='left'
+    )
 
-    if mask.any():
-        duplicate_df = merged_df[mask].copy()
-        # Merging on middle names for duplicate students
-        dup_merge = duplicate_df.merge(
-            df2_lookup,
-            left_on=['first_name', 'middle_name', 'last_name', 'year_clean'],
-            right_on=['first_name_synergetic', 'middle_name_synergetic', 'last_name_synergetic', year_col_df2],
-            how='left',
-            suffixes=('', '_final')
-        )
-        # Replace ID and Full Name where we got a match using middle name
-        for col in [id_col_name, name_col_df2]:
-            merged_df.loc[mask, col] = dup_merge[col + '_final'].values
-    
-    # Adding Synergetic name list
-    merged_df['Full Name (Synergetic)'] = merged_df[name_col_df2]
+    # --- Fuzzy match only where ID is still missing ---
+    unmatched = merged_df[id_col_master].isna()
 
-    # Dropping unnecessary columns
+    for idx, row in merged_df[unmatched].iterrows():
+        candidates = master[
+            (master[year_col_master] == row['year_clean']) &
+            (master['last'] == row['last'])
+        ]
+
+        if candidates.empty:
+            continue
+
+        names = candidates[master_name_col].tolist()
+
+        first_last = f"{row['first']} {row['last']}"
+        first_middle = f"{row['first']} {row['middle']} {row['last']}".strip()
+
+        match = process.extractOne(first_last, names, scorer=fuzz.token_sort_ratio)
+        if not match or match[1] < fuzzy_threshold:
+            match = process.extractOne(first_middle, names, scorer=fuzz.partial_token_sort_ratio)
+
+        if match and match[1] >= fuzzy_threshold:
+            matched_row = candidates[candidates[master_name_col] == match[0]].iloc[0]
+            merged_df.at[idx, id_col_master] = matched_row[id_col_master]
+            merged_df.at[idx, master_name_col] = matched_row[master_name_col]
+
+    # --- Final columns ---
+    merged_df['Full Name (Synergetic)'] = merged_df[master_name_col]
+
     merged_df.drop(
-        columns=[
-            'name_parts', 'year_clean',
-            'first_name', 'middle_name', 'last_name',
-            'first_name_synergetic', 'middle_name_synergetic', 'last_name_synergetic',
-            name_col_df2, year_col_df2,
-        ],
+        columns=['first', 'middle', 'last', 'year_clean', year_col_master, master_name_col],
         errors='ignore',
-        inplace=True,
+        inplace=True
     )
 
-    # Cleaning and positioning ID column
-    merged_df[id_col_name] = merged_df[id_col_name].astype('Int64').astype('string')
-    id_series = merged_df.pop(id_col_name)
-    merged_df.insert(insert_pos, id_col_name, id_series)
+    merged_df[id_col_master] = merged_df[id_col_master].astype('Int64').astype('string')
+    id_series = merged_df.pop(id_col_master)
+    merged_df.insert(insert_pos, id_col_master, id_series)
 
-    # Move Synergetic name column
     synergetic_name = merged_df.pop('Full Name (Synergetic)')
     merged_df.insert(1, 'Full Name (Synergetic)', synergetic_name)
 
-    # Change 'ECG' to 'EMC'
-    merged_df['ClassCampus'] = merged_df['ClassCampus'].str.replace('EGC', 'EMC')
-
-    # Moving Campus column
-    campus_col = merged_df.pop('ClassCampus')
-    merged_df.insert(8, 'Campus', campus_col)
-
     return merged_df
 
-students_maths_match = match_student_ids(students_maths_clean, class_list)
-students_reading_match = match_student_ids(students_reading_clean, class_list)
-#students_spelling_match = match_student_ids(students_spelling_clean, class_list)
+# Maths
+students_maths_match_y7 = match_student_ids(students_maths_clean_y7, class_list)
+students_maths_match_y8 = match_student_ids(students_maths_clean_y8, class_list)
+students_maths_match_y9 = match_student_ids(students_maths_clean_y9, class_list)
+students_maths_match_y10 = match_student_ids(students_maths_clean_y10, class_list)
 
+# Reading
+students_reading_match_y7 = match_student_ids(students_reading_clean_y7, class_list)
+students_reading_match_y8 = match_student_ids(students_reading_clean_y8, class_list)
+students_reading_match_y9 = match_student_ids(students_reading_clean_y9, class_list)
+students_reading_match_y10 = match_student_ids(students_reading_clean_y10, class_list)
+
+
+# # ------------------------------------------------------------------
+# # CHECK FOR ANY STUDENTS WITH SAME NAME + YEAR LEVEL + CAMPUS COMBO
+# # -------------------------------------------------------------------
+
+# Function
+def students_with_duplicate_names(df,
+                                  name_col='Full Name',
+                                  year_col='Year level (current)'):
+    temp = df.copy()
+
+    # Extract year number
+    temp['year_clean'] = temp[year_col].astype(str).str.extract(r'(\d+)').astype(int)
+
+    # First + last only
+    temp['first'] = temp[name_col].str.split().str[0].str.lower()
+    temp['last'] = temp[name_col].str.split().str[-1].str.lower()
+
+    # Count duplicates
+    dup_mask = temp.duplicated(
+        subset=['first', 'last', 'year_clean'],
+        keep=False
+    )
+
+    result = temp.loc[dup_mask].sort_values(
+        by=['year_clean', 'last', 'first']
+    )
+
+    # Clean up for display
+    return result.drop(columns=['first', 'last', 'year_clean'])
+
+# Get and print duplicates
+duplicates = students_with_duplicate_names(students_maths_match_y7)
+print(duplicates)
+
+# Manual overrides
+manual_overrides = pd.DataFrame({
+    'Full Name': ['Muhammad Ibrahim Sajid'],
+    'DOB': ['20-06-2012'],
+    'Correct ID': ['33378']
+})
+
+# Stacking overrides:
+# manual_overrides = pd.DataFrame([
+#     {'Full Name': 'Muhammad Ibrahim Sajid', 'DOB': '20-06-2012', 'Correct ID': '33378'},
+#     {'Full Name': 'Muhammad Zayan Khan', 'DOB': '06-05-2013', 'Correct ID': '34015'},
+# ])
+
+# Apply manual override
+students_maths_match_y7 = students_maths_match_y7.merge(
+    manual_overrides,
+    on=['Full Name', 'DOB'],
+    how='left'
+)
+students_reading_match_y7 = students_maths_match_y7.merge(
+    manual_overrides,
+    on=['Full Name', 'DOB'],
+    how='left'
+)
+
+# Get the correct ID
+# Maths
+students_maths_match_y7['ID'] = students_maths_match_y7['Correct ID'].combine_first(students_maths_match_y7['ID'])
+students_maths_match_y7.drop(columns='Correct ID', inplace=True)
+# Reading
+students_reading_match_y7['ID'] = students_reading_match_y7['Correct ID'].combine_first(students_reading_match_y7['ID'])
+students_reading_match_y7.drop(columns='Correct ID', inplace=True)
+
+# Verify
+students_maths_match_y7.loc[
+    students_maths_match_y7['Full Name'] == 'Muhammad Ibrahim Sajid',
+    ['Full Name', 'DOB', 'ID']
+]
 
 # # ---------------------------------------------------------------
 # # CLEAN QUESTIONS DATAFRAME
 # # ---------------------------------------------------------------
+# Function
+def clean_q_df(dataframe):
+    return(
+        dataframe
+        .set_index(dataframe.columns[0]) # set first column as row labels
+        .T # transpose
+        .reset_index(drop=True) # clean up the old index
+        .rename_axis(None, axis=1) # removing name from index
+        .reindex(columns=[
+            'Question number',
+            'Strand',
+            'Question difficulty',
+            'Percentage correct'
+        ])
+    )
+
+# Applying
 # Maths
-q_strands_maths = (
-    q_strands_maths
-    .set_index(q_strands_maths.columns[0]) # set first column as row labels
-    .T # transpose
-    .reset_index(drop=True) # clean up the old index
-    .rename_axis(None, axis=1) # removing name from index
-    .reindex(columns=['Question number','Strand','Question difficulty','Percentage correct'])
-)
+q_strands_maths_y7 = clean_q_df(q_strands_maths_y7)
+q_strands_maths_y8 = clean_q_df(q_strands_maths_y8)
+q_strands_maths_y9 = clean_q_df(q_strands_maths_y9)
+q_strands_maths_y10 = clean_q_df(q_strands_maths_y10)
 # Reading
-q_strands_reading = (
-    q_strands_reading
-    .set_index(q_strands_reading.columns[0]) # set first column as row labels
-    .T # transpose
-    .reset_index(drop=True) # clean up the old index
-    .rename_axis(None, axis=1) # removing name from index
-    .reindex(columns=['Question number','Strand','Question difficulty','Percentage correct'])
-)
-# # Spelling
-# q_strands_spelling = (
-#     q_strands_spelling
-#     .set_index(q_strands_spelling.columns[0]) # set first column as row labels
-#     .T # transpose
-#     .reset_index(drop=True) # clean up the old index
-#     .rename_axis(None, axis=1) # removing name from index
-#     .reindex(columns=['Question number','Strand','Question difficulty','Percentage correct'])    
-# )
+q_strands_reading_y7 = clean_q_df(q_strands_reading_y7)
+q_strands_reading_y8 = clean_q_df(q_strands_reading_y8)
+q_strands_reading_y9 = clean_q_df(q_strands_reading_y9)
+q_strands_reading_y10 = clean_q_df(q_strands_reading_y10)
 
 
 # # ---------------------------------------------------------------
 # # CLEAN STRAND KEY COLUMNS
 # # ---------------------------------------------------------------
 
+# Function
+def map_strand_names(strand_key_df, q_strands_df, strand_col='Strand'):
+    # Standardise key dataframe column names
+    strand_key_df.rename(
+        columns = {
+            strand_key_df.columns[0]: 'Key',
+            strand_key_df.columns[1]: 'Name'
+        },
+        inplace = True
+    )
+
+    # Creating mapping dictionary
+    strand_map = dict(zip(strand_key_df['Key'], strand_key_df['Name']))
+
+    # Applying mapping
+    q_strands_df[strand_col] = q_strands_df[strand_col].map(strand_map)
+
+    return q_strands_df
+
+# Applying
 # Maths
-strand_key_maths = strand_key_maths.rename(columns={strand_key_maths.columns[0]:'Key',
-                                        strand_key_maths.columns[1]:'Name'})
-# Convert the single letter 'Strand' code to full name for ease of reading
-strand_map_maths = dict(zip(strand_key_maths['Key'], strand_key_maths['Name'])) # Convert to dictionary for mapping
-q_strands_maths['Strand'] = q_strands_maths['Strand'].map(strand_map_maths) # Mapping
-
+q_strands_maths_y7 = map_strand_names(strand_key_maths_y7, q_strands_maths_y7)
+map_strand_names(strand_key_maths_y8, q_strands_maths_y8)
+map_strand_names(strand_key_maths_y9, q_strands_maths_y9)
+map_strand_names(strand_key_maths_y10, q_strands_maths_y10)
 # Reading
-strand_key_reading = strand_key_reading.rename(columns={strand_key_reading.columns[0]:'Key', strand_key_reading.columns[1]:'Name'})
-# Convert the single letter 'Strand' code to full name for ease of reading
-strand_map_reading = dict(zip(strand_key_reading['Key'], strand_key_reading['Name'])) # Convert to dictionary for mapping
-q_strands_reading['Strand'] = q_strands_reading['Strand'].map(strand_map_reading) # Mapping
+map_strand_names(strand_key_reading_y7, q_strands_reading_y7)
+map_strand_names(strand_key_reading_y8, q_strands_reading_y8)
+map_strand_names(strand_key_reading_y9, q_strands_reading_y9)
+map_strand_names(strand_key_reading_y10, q_strands_reading_y10)
 
-# # Spelling
-# strand_key_spelling = strand_key_spelling.rename(columns={strand_key_spelling.columns[0]:'Key',
-#                                         strand_key_spelling.columns[1]:'Name'})
-# # Convert the single letter 'Strand' code to full name for ease of reading
-# strand_map_spelling = dict(zip(strand_key_spelling['Key'], strand_key_spelling['Name'])) # Convert to dictionary for mapping
-# q_strands_spelling['Strand'] = q_strands_spelling['Strand'].map(strand_map_spelling) # Mapping
-
+# Turning in to dictionaries
+# Maths
+year_level_q_strands_maths = {
+    'Year7': q_strands_maths_y7,
+    'Year8': q_strands_maths_y8,
+    'Year9': q_strands_maths_y9,
+    'Year10': q_strands_maths_y10,
+}
+# Reading
+year_level_q_strands_reading = {
+    'Year7': q_strands_reading_y7,
+    'Year8': q_strands_reading_y8,
+    'Year9': q_strands_reading_y9,
+    'Year10': q_strands_reading_y10,
+}
 
 # # ---------------------------------------------------------------
 # # MATCH STUDENT TO CLASS
@@ -339,6 +492,74 @@ def match_student_class(names_dataframe, class_dataframe):
     # To access: classes['K10-HPE4-2']
 
     return classes
+
+# # ---------------------------------------------------------------
+# # BUILDING NESTED DICTIONARY & APPLYING FUNCTION
+# # ---------------------------------------------------------------
+
+# Making dataframe dictionary
+# Maths
+year_level_dataframes_maths = {
+    'Year7': students_maths_match_y7,
+    'Year8': students_maths_match_y8,
+    'Year9': students_maths_match_y9,
+    'Year10': students_maths_match_y10,
+}
+# Make empty dictionary
+class_maths = {}
+# Adding to dictionary
+for year_level, year_df in year_level_dataframes_maths.items():
+    # year_level_dataframes should be a dictionary of year level dataframes (see example below)
+    # year_level will be 'Year10', 'Year9', etc.
+    # year_df will be students_maths_match_y10, students_maths_match_y9, etc.
+    year_classes = match_student_class(year_df, class_list)
+    
+    # Add to nested structure
+    for class_code, df in year_classes.items():
+        if class_code not in class_maths:
+            class_maths[class_code] = {}
+        class_maths[class_code][year_level] = df
+
+# Reading
+year_level_dataframes_reading = {
+    'Year7': students_reading_match_y7,
+    'Year8': students_reading_match_y8,
+    'Year9': students_reading_match_y9,
+    'Year10': students_reading_match_y10,
+}
+# Make empty dictionary
+class_reading = {}
+# Adding to dictionary
+for year_level, year_df in year_level_dataframes_reading.items():
+    # year_level_dataframes should be a dictionary of year level dataframes (see example below)
+    # year_level will be 'Year10', 'Year9', etc.
+    # year_df will be students_maths_match_y10, students_maths_match_y9, etc.
+    year_classes = match_student_class(year_df, class_list)
+    
+    # Add to nested structure
+    for class_code, df in year_classes.items():
+        if class_code not in class_reading:
+            class_reading[class_code] = {}
+        class_reading[class_code][year_level] = df
+
+# year_level_dataframes = {
+#     'Year10': students_maths_match_y10,
+#     'Year9': students_maths_match_y9,
+#     'Year8': students_maths_match_y8,
+#     ...
+# }
+
+## End result:
+# class_reports_maths['K10-HPE4-2']['Year10']  # DataFrame for Year 10 in this class
+# class_reports_reading['K10-HPE4-2']['Year10'] # DataFrame for Year 10 in this class
+
+
+# # ---------------------------------------------------------------
+# # CLEANING AND SAVING
+# # ---------------------------------------------------------------
+
+
+
 
 class_reading_all = match_student_class(students_reading_match, class_list)
 class_maths_all = match_student_class(students_maths_match, class_list)
