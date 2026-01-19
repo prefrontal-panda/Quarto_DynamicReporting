@@ -226,7 +226,8 @@ def match_student_ids(df_students, df_master,
         .groupby(['first', 'last', year_col_master])
         .agg({
             id_col_master: lambda x: x.iloc[0] if x.nunique() == 1 else pd.NA,
-            master_name_col: 'first'
+            master_name_col: 'first',
+            'ClassCampus': lambda x: x.iloc[0] if x.nunique() == 1 else pd.NA,
         })
         .reset_index()
     )
@@ -264,6 +265,7 @@ def match_student_ids(df_students, df_master,
             matched_row = candidates[candidates[master_name_col] == match[0]].iloc[0]
             merged_df.at[idx, id_col_master] = matched_row[id_col_master]
             merged_df.at[idx, master_name_col] = matched_row[master_name_col]
+            merged_df.at[idx, 'ClassCampus'] = matched_row['ClassCampus']
 
     # --- Final columns ---
     merged_df['Full Name (Synergetic)'] = merged_df[master_name_col]
@@ -280,6 +282,9 @@ def match_student_ids(df_students, df_master,
 
     synergetic_name = merged_df.pop('Full Name (Synergetic)')
     merged_df.insert(1, 'Full Name (Synergetic)', synergetic_name)
+
+    # Renaming
+    merged_df = merged_df.rename(columns={'ClassCampus': 'Campus'})
 
     return merged_df
 
@@ -327,21 +332,27 @@ def students_with_duplicate_names(df,
     return result.drop(columns=['first', 'last', 'year_clean'])
 
 # Get and print duplicates
-duplicates = students_with_duplicate_names(students_maths_match_y7)
-print(duplicates)
+# Get
+duplicates_y7 = students_with_duplicate_names(students_maths_match_y7)
+duplicates_y8 = students_with_duplicate_names(students_maths_match_y8)
+duplicates_y9 = students_with_duplicate_names(students_maths_match_y9)
+duplicates_y10 = students_with_duplicate_names(students_maths_match_y10)
+# Print
+print("Year 7:")
+print(duplicates_y7[['Full Name', 'Username', 'ID', 'DOB', 'Active tags']])
+print("Year 8:")
+print(duplicates_y8[['Full Name', 'Username', 'ID', 'DOB', 'Active tags']])
+print("Year 9:")
+print(duplicates_y9[['Full Name', 'Username', 'ID', 'DOB', 'Active tags']])
+print("Year 10:")
+print(duplicates_y10[['Full Name', 'Username', 'ID', 'DOB', 'Active tags']])
 
 # Manual overrides
-manual_overrides = pd.DataFrame({
-    'Full Name': ['Muhammad Ibrahim Sajid'],
-    'DOB': ['20-06-2012'],
-    'Correct ID': ['33378']
-})
-
-# Stacking overrides:
-# manual_overrides = pd.DataFrame([
-#     {'Full Name': 'Muhammad Ibrahim Sajid', 'DOB': '20-06-2012', 'Correct ID': '33378'},
-#     {'Full Name': 'Muhammad Zayan Khan', 'DOB': '06-05-2013', 'Correct ID': '34015'},
-# ])
+manual_overrides = pd.DataFrame([
+    {'Full Name': '', 'DOB': '', 'Correct ID': ''},
+    {'Full Name': '', 'DOB': '', 'Correct ID': ''},
+    {'Full Name': '', 'DOB': '', 'Correct ID': ''}
+])
 
 # Apply manual override
 students_maths_match_y7 = students_maths_match_y7.merge(
@@ -356,6 +367,7 @@ students_reading_match_y7 = students_maths_match_y7.merge(
 )
 
 # Get the correct ID
+# Year 7
 # Maths
 students_maths_match_y7['ID'] = students_maths_match_y7['Correct ID'].combine_first(students_maths_match_y7['ID'])
 students_maths_match_y7.drop(columns='Correct ID', inplace=True)
@@ -363,11 +375,23 @@ students_maths_match_y7.drop(columns='Correct ID', inplace=True)
 students_reading_match_y7['ID'] = students_reading_match_y7['Correct ID'].combine_first(students_reading_match_y7['ID'])
 students_reading_match_y7.drop(columns='Correct ID', inplace=True)
 
-# Verify
-students_maths_match_y7.loc[
-    students_maths_match_y7['Full Name'] == 'Muhammad Ibrahim Sajid',
-    ['Full Name', 'DOB', 'ID']
-]
+# Year 9
+# Maths
+students_maths_match_y9 = students_maths_match_y9.merge(
+    manual_overrides,
+    on=['Full Name', 'DOB'],
+    how='left'
+)
+students_maths_match_y9['ID'] = students_maths_match_y9['Correct ID'].combine_first(students_maths_match_y9['ID'])
+students_maths_match_y9.drop(columns='Correct ID', inplace=True)
+# Reading
+students_reading_match_y9 = students_reading_match_y9.merge(
+    manual_overrides,
+    on=['Full Name', 'DOB'],
+    how='left'
+)
+students_reading_match_y9['ID'] = students_reading_match_y9['Correct ID'].combine_first(students_reading_match_y9['ID'])
+students_reading_match_y9.drop(columns='Correct ID', inplace=True)
 
 # # ---------------------------------------------------------------
 # # CLEAN QUESTIONS DATAFRAME
@@ -558,70 +582,26 @@ for year_level, year_df in year_level_dataframes_reading.items():
 # # CLEANING AND SAVING
 # # ---------------------------------------------------------------
 
-
-
-
-class_reading_all = match_student_class(students_reading_match, class_list)
-class_maths_all = match_student_class(students_maths_match, class_list)
-#class_spelling_all = match_student_class(student_spelling_match, class_list)
-
-# Keep classes who are in both dictionaries (for now)
-# Get common keys
-common_classes = set(class_maths_all.keys()) & set(class_reading_all.keys())
-# Filter for the common classes
-class_maths = {key: class_maths_all[key] for key in common_classes}
-class_reading = {key: class_reading_all[key] for key in common_classes}
-# Print uncommon classes
-uncommon_keys = class_maths_all.keys() ^ class_reading_all.keys()
-print(f"Uncommon keys: {uncommon_keys}")
-# Output(19-12-2025): Uncommon keys: {'K1112-VCDUX-5', 'K1011-MATMU12-3', 'K1112-MATMUX-3', 'I10-ENG4-3', 'K1011-VCDU12-5'}
-
 # Printing number of classes
 print(f"Number of classes: {len(class_maths)}")
-print(f"Class codes: {list(class_maths.keys())}")
+# print(f"Class codes: {list(class_maths.keys())}")
 
+# We will be generating reports for all classes
+# For those without data in either Maths or Reading, we will print a statment in the report
 
-# Take first 2 classes only (for testing)
-# test_class_maths = dict(list(class_maths.items())[:2])
-# test_class_reading = dict(list(class_reading.items())[:2])
-
-# test_classes = ['I10S2-SCI4-5', 'S05-STEM-A']
-# test_class_maths = {k: v for k, v in class_maths.items() if k in test_classes}
-# test_class_reading = {k: v for k, v in class_reading.items() if k in test_classes}
-
-# Save to file
-# Dictionaries
-with open("class_testscores.pkl", "wb") as f:
+# Saving dictionaries to files
+# Test Scores
+with open("pat_testscores_byclass.pkl", "wb") as f:
     pickle.dump(class_maths, f)
     pickle.dump(class_reading, f)
     #pickle.dump(class_spelling, f)
 
-# Variables
-# Making dictionary
-var_dict = {
-    'q_strands_maths': q_strands_maths,
-    'q_strands_reading': q_strands_reading,
-    #'q_strands_spelling': q_strands_spelling,
-    'students_maths_match': students_maths_match,
-    'students_reading_match': students_reading_match
-    #'students_spelling_match': students_spelling_match
-}
-# Saving
-var_dict_path = 'Variables.pkl'
-with open(var_dict_path, 'wb') as f:
-    pickle.dump(var_dict, f)
+# Year-level dataframes
+with open("yrlvl_df.pkl", "wb") as f:
+    pickle.dump(year_level_dataframes_maths, f)
+    pickle.dump(year_level_dataframes_reading, f)
 
-
-
-
-## Load dictionaries at runtime
-# with open("class_maths.pkl", "rb") as f:
-#     class_maths = pickle.load(f)
-# with open("class_reading.pkl", "rb") as f:
-#     class_reading = pickle.load(f)
-# with open("q_strands_reading.pkl", "rb") as f:
-#     q_strands_reading = pickle.load(f)
-# with open("students_maths_match.pkl", "rb") as f:
-#     students_maths_match = pickle.load(f)
-# with open("students_reading_match.pkl", "rb") as f:
-#     students_reading_match = pickle.load(f)
+# Question substrands
+with open("q_strands.pkl", "wb") as f:
+    pickle.dump(year_level_q_strands_maths, f)
+    pickle.dump(year_level_q_strands_reading, f)
