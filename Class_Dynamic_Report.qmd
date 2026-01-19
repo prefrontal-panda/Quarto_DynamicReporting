@@ -40,6 +40,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from tabulate import tabulate
 import pickle
+import sys
 ```
 
 
@@ -58,26 +59,64 @@ student_CG = pd.read_csv("PAT_ReportGen_Files/Student_CG.csv")
 ```{python}
 # Getting individual classes for plotting
 # Loading dictionary - call them in the same sequence you saved them as
-with open("class_testscores.pkl", "rb") as f:
+with open("pat_testscores_byclass.pkl", "rb") as f:
     class_maths = pickle.load(f)
     class_reading = pickle.load(f)
-# Loading variables
-var_dict_path = 'Variables.pkl'
-with open(var_dict_path, 'rb') as f:
-    loaded_data = pickle.load(f)
-# Access individual DataFrames using their keys
-q_strands_maths = loaded_data['q_strands_maths']
-q_strands_reading = loaded_data['q_strands_reading']
-students_maths_match = loaded_data['students_maths_match']
-students_reading_match = loaded_data['students_reading_match']
+# Loading year level dictionaries
+with open("yrlvl_df.pkl", "rb") as f:
+    year_level_dataframes_maths = pickle.load(f)
+    year_level_dataframes_reading = pickle.load(f)
+# Loading question substrand dictionaries
+with open("q_strands.pkl", "rb") as f:
+    year_level_q_strands_maths = pickle.load(f)
+    year_level_q_strands_reading = pickle.load(f)
 
-# # Selecting classes
-df_maths = class_maths[class_code]
-df_reading = class_reading[class_code]
-#df_spelling = class_spelling[class_code]
+# Selecting classes
+df_maths = class_maths.get(class_code, None)
+df_reading = class_reading.get(class_code, None)
 
-# Get year levels in the class
-year_levels_in_class = df_maths['StudentYearLevel'].unique()
+# Check if classes exist in the dictionary
+has_maths = class_code in class_maths
+has_reading = class_code in class_reading
+
+# Check if there is any data for this class
+if not has_maths and not has_reading:
+    display(Markdown(f"## No Data Available\n\nNo PAT test data found for class {class_code}."))
+    import sys
+    sys.exit(0)
+
+# Get the nested dictionaries (which contain year levels)
+if has_maths:
+    df_maths = class_maths[class_code]  # This is a dict like {'Year7': DataFrame, 'Year8': DataFrame}
+else:
+    df_maths = None
+
+if has_reading:
+    df_reading = class_reading[class_code]
+else:
+    df_reading = None
+
+# Display data availability message
+availability_msg = "## Data Availability\n\n"
+if has_maths and has_reading:
+    availability_msg += "PAT Maths and Reading data available for this class.\n"
+elif has_maths:
+    availability_msg += "PAT Maths data available.\n\nNote: PAT Reading data not available for this class.\n"
+elif has_reading:
+    availability_msg += "PAT Reading data available.\n\nNote: PAT Maths data not available for this class.\n"
+
+display(Markdown(availability_msg))
+
+# Get year levels from whichever dataset is available
+if has_maths:
+    year_levels_in_class = list(df_maths.keys())  # Get year levels from dictionary keys
+elif has_reading:
+    year_levels_in_class = list(df_reading.keys())
+else:
+    year_levels_in_class = []
+
+# Convert to numeric for sorting (e.g., 'Year7' -> 7) - ensures year levels are printed in the correct order (e.g. 7, 8, 9, 10 instead of 10, 7, 8, 9)
+year_levels_numeric = [int(yl.replace('Year', '')) for yl in year_levels_in_class]
 ```
 
 ```{python}
@@ -117,7 +156,8 @@ substrand_norm_df = {
 <!-- Functions -->
 ```{python}
 # Function to compare % correct between class and year-level
-def compare_plot(dataframe, class_df, strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
+def compare_plot(dataframe, class_df, pct_corrct_df,
+                strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
                 test = 'PAT Maths',
                 plot_title = None):
     """
@@ -149,7 +189,7 @@ def compare_plot(dataframe, class_df, strand_col_name = 'Strand', substrand_col_
         'index': 'Question number',
         0 : 'Percentage Correct'
     }, inplace = True)
-    percent_correct['Strand'] = q_strands_maths['Strand']
+    percent_correct['Strand'] = pct_corrct_df['Strand']
 
     # Making variables
     questions = dataframe['Question number'].astype(int)
@@ -520,10 +560,21 @@ def label_kmeans_clusters(
 ```{python}
 # Reporting
 
-# Get list of year levels
-stud_year_level = df_maths["StudentYearLevel"].value_counts().to_dict()
-# Alternatively:
-# stud_year_level = df_maths.groupby('StudentYearLevel').size().to_dict()
+# Get list of year levels and student counts
+if has_maths:
+    # Combine all year levels from the nested dict to count students
+    all_year_levels = []
+    for year_key, df in df_maths.items():
+        all_year_levels.extend(df['StudentYearLevel'].tolist())
+    stud_year_level = pd.Series(all_year_levels).value_counts().to_dict()
+elif has_reading:
+    # Combine all year levels from the nested dict
+    all_year_levels = []
+    for year_key, df in df_reading.items():
+        all_year_levels.extend(df['StudentYearLevel'].tolist())
+    stud_year_level = pd.Series(all_year_levels).value_counts().to_dict()
+else:
+    stud_year_level = {}
 
 # Get number of students in year level
 year_summary = " and ".join(
@@ -574,29 +625,41 @@ For more information on these tests, please have a read through of these links:
 ```{python}
 # Calling plot
 # loop through dataframe and get each year level
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
-
-    # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
 
     # Get year-specific data
-    year_data = substrand_norm_df[f'Year{year_level}']
+    # Key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
+    # Dataframe
+    year_data = substrand_norm_df[year_key]
 
     # Call relevant q_strands_match dataframe
-    q_strands_maths = year_level_q_strands_maths[f'Year{year_level}']
-    q_strands_reading = year_level_q_strands_reading[f'Year{year_level}']
+    q_strands_maths = year_level_q_strands_maths[year_key]
+    q_strands_reading = year_level_q_strands_reading[year_key]
 
-    # Call plots
     # Maths
-    compare_plots(dataframe = year_data['substrands_maths'], class_df = df_maths_year,
-                  strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
-                  test = 'PAT Maths', plot_title = None)
+    if has_maths and year_key in df_maths:
+        df_maths_year = df_maths[year_key] # Get dataframe
+
+        # Plot
+        compare_plot(dataframe = year_data['substrands_maths'], class_df = df_maths_year,
+                    pct_corrct_df = q_strands_maths,
+                    strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
+                    test = 'PAT Maths', plot_title = None)
+    else:
+        display(Markdown("*Note: PAT Maths data not available for this class.*\n"))
+    
     # Reading
-    compare_plots(dataframe = q_strands_reading, class_df = df_reading_year,
-                  strand_col_name = 'Strand', substrand_col_name = 'Sub-strand',
-                  test = 'PAT Reading', plot_title = None)    
+    if has_reading and year_key in df_reading:
+        df_reading_year = df_reading[year_key]
+        
+        compare_plot(dataframe = q_strands_reading, class_df = df_reading_year,
+                    pct_corrct_df= q_strands_reading,
+                    strand_col_name = 'Strand', substrand_col_name = 'Strand',
+                    test = 'PAT Reading', plot_title = None)
+    else:
+        display(Markdown("*Note: PAT Reading data not available for this class.*\n"))    
   
 ```
 
@@ -618,76 +681,108 @@ p10 and p90 represent the 10th and 90th percentiles of the year-level scores res
 
 ::: {.landscape}
 
+## Student Scale Score vs Year level-wide Scores
+
 ```{python}
 #| fig-width: 11
 #| fig-height: 7
 #| fig-align: center
 
 # loop through dataframe and get each year level
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
 
-    # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
-
-    # Get year-specific data
-    year_data = substrand_norm_df[f'Year{year_level}']
+    # Get year key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
 
     # Get year-level comparison data
-    year_maths = year_level_dataframes_maths[f'Year{year_level}'] # contains the students_math_match_yX
-    year_reading = year_level_dataframes_reading[f'Year{year_level}']
-    # year_maths = students_maths_match[students_maths_match['StudentYearLevel'] == year_level]
-    # year_reading = students_reading_match[students_reading_match['StudentYearLevel'] == year_level]
+    year_maths = year_level_dataframes_maths[year_key] # contains the students_math_match_yX
+    year_reading = year_level_dataframes_reading[year_key]
 
-    # Call plots
     # Maths
-    students_vs_year_score(df1 = year_maths, df2 = df_maths_year,
-                            yearlevel_scores = 'Scale', student_scores = 'Scale',
-                            student_names = 'StudentNameExternal',
-                            title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores')
+    if has_maths and year_key in df_maths:
+        df_maths_year = df_maths[year_key] # Access year-level dataframe from the nested dictionary
+
+        # Plot
+        student_vs_year_score(
+            df1 = year_maths, df2 = df_maths_year,
+            yearlevel_scores = 'Scale', student_scores = 'Scale',
+            student_names = 'StudentNameExternal',
+            title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores'
+        )
+    else:
+        display(Markdown("*Note: PAT Maths data not available for this class.*\n"))
+    
     # Reading
-    students_vs_year_score(df1 = year_reading, df2 = df_reading_year,
-                            yearlevel_scores = 'Scale', student_scores = 'Scale',
-                            student_names = 'StudentNameExternal',
-                            title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores') 
+    if has_reading and year_key in df_reading:
+        df_reading_year = df_reading[year_key]
+
+        # Plot
+        student_vs_year_score(
+            df1 = year_reading, df2 = df_reading_year,
+            yearlevel_scores = 'Scale', student_scores = 'Scale',
+            student_names = 'StudentNameExternal',
+            title = 'PAT Maths - Student Scores vs School-wide Year-Level Scores'
+        )
+    else:
+        display(Markdown("*Note: PAT Reading data not available for this class.*\n"))
 ```
 
 ## Student Scale Score vs Campus-wide Scores
 
 ```{python}
+# Get campus where class is taught
+if has_maths:
+    # Get any row from any year level to find the campus
+    first_year_key = list(df_maths.keys())[0]
+    campuses = df_maths[first_year_key]['Campus'].unique()
+elif has_reading:
+    first_year_key = list(df_reading.keys())[0]
+    campuses = df_reading[first_year_key]['Campus'].unique()
+else:
+    campuses = []
+
 # loop through dataframe and get each year level
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
 
-    # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
-
-    # Getting campus where class is taught
-    campuses = df_maths_year['Campus'].unique()
-
-    # Get year-specific data
-    year_data = substrand_norm_df[f'Year{year_level}']
+    # Get year key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
 
     # Get year-level comparison data
-    students_maths_match = year_level_dataframes_maths[f'Year{year_level}']
-    students_reading_match = year_level_dataframes_reading[f'Year{year_level}']
+    students_maths_match = year_level_dataframes_maths[year_key]
+    students_reading_match = year_level_dataframes_reading[year_key]
     # Get campus set
     campus_set_maths = students_maths_match[students_maths_match['Campus'].isin(campuses)]
     campus_set_reading = students_reading_match[students_reading_match['Campus'].isin(campuses)]
 
-    # Call plots
     # Maths
-    students_vs_year_score(df1 = campus_set_maths, df2 = df_maths_year,
-                            yearlevel_scores = 'Scale', student_scores = 'Scale',
-                            student_names = 'StudentNameExternal',
-                            title = 'PAT Maths - Student Scores vs Campus-wide Year-Level Scores')
+    if has_maths and year_key in df_maths:
+        df_maths_year = df_maths[year_key]
+
+        # Plot
+        student_vs_year_score(
+            df1 = campus_set_maths, df2 = df_maths_year,
+            yearlevel_scores = 'Scale', student_scores = 'Scale',
+            student_names = 'StudentNameExternal',
+            title = 'PAT Maths - Student Scores vs Campus-wide Year-Level Scores'
+        )
+    else:
+        display(Markdown("*Note: PAT Maths data not available for this class.*\n"))
+    
     # Reading
-    students_vs_year_score(df1 = campus_set_maths, df2 = df_reading_year,
-                            yearlevel_scores = 'Scale', student_scores = 'Scale',
-                            student_names = 'StudentNameExternal',
-                            title = 'PAT Reading - Student Scores vs Campus-wide Year-Level Scores') 
+    if has_reading and year_key in df_reading:
+        df_reading_year = df_reading[year_key]
+
+        # Plot
+        student_vs_year_score(
+            df1 = campus_set_reading, df2 = df_reading_year,
+            yearlevel_scores = 'Scale', student_scores = 'Scale',
+            student_names = 'StudentNameExternal',
+            title = 'PAT Reading - Student Scores vs Campus-wide Year-Level Scores'
+        )
+    else:
+        display(Markdown("*Note: PAT Reading data not available for this class.*\n"))
 ```
 
 :::
@@ -710,25 +805,40 @@ Additionally, this webpage also contains information on the norms used by ACER:
 # Calling plot
 warnings.filterwarnings('ignore')
 # loop through dataframe and get each year level
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
 
-    # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
+    # Get year key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
 
     # Get year-specific data
-    year_data = substrand_norm_df[f'Year{year_level}']
+    year_data = substrand_norm_df[year_key]
 
-    # Call plots
     # Maths
-    score_bellcurve(dataframe = df_maths_year, mean = year_data['mean_maths'],
-                    std=year_data['std_maths'], student_scale_col='Scale',
-                    title = "PAT Maths - Student Scale Scores Relative to Australian Norms")
+    if has_maths and year_key in df_maths:
+        df_maths_year = df_maths[year_key]
+
+        # Plot
+        score_bellcurve(
+            dataframe = df_maths_year, mean = year_data['mean_maths'],
+            std=year_data['std_maths'], student_scale_col='Scale',
+            title = "PAT Maths - Student Scale Scores Relative to Australian Norms"
+        )
+    else:
+        display(Markdown("*Note: PAT Maths data not available for this class.*\n"))
+    
     # Reading
-    score_bellcurve(dataframe = df_reading_year, mean = year_data['mean_reading'],
-                    std=year_data['std_reading'], student_scale_col='Scale',
-                    title = "PAT Reading - Student Scale Scores Relative to Australian Norms")
+    if has_reading and year_key in df_reading:
+        df_reading_year = df_reading[year_key]
+
+        # Plot
+        score_bellcurve(
+            dataframe = df_reading_year, mean = year_data['mean_reading'],
+            std=year_data['std_reading'], student_scale_col='Scale',
+            title = "PAT Reading - Student Scale Scores Relative to Australian Norms"
+        )
+    else:
+        display(Markdown("*Note: PAT Reading data not available for this class.*\n"))
 ```
 
 {{< pagebreak >}}
@@ -747,24 +857,23 @@ grade_ord_year = ["A+", "A", "B+", "B", "C+", "C", "D+", "D", "E+", "E"]
 student_CG['Student ID'] = student_CG['Student ID'].astype(str)
 
 # For loop
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
+
+    # Get year key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
 
     # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
+    df_maths_year = df_maths[year_key]
     # Converting 'ID' column
     df_maths_year['ID'] = df_maths_year['ID'].astype(str)
 
     # Subsetting
     class_CG = student_CG[student_CG['Student ID'].isin(df_maths_year['ID'])] # Class
-    year_CG = student_CG[student_CG['Year Level'].isin(year_level)] # Year-level
+    year_CG = student_CG[student_CG['Year Level'] == year_level] # Year-level
     # Campus
     campus = df_maths_year['ClassCampus'].iloc[0]
     campus_CG = student_CG[student_CG['Year Level'] == campus]
-
-    # Get year-specific data
-    #year_data = substrand_norm_df[f'Year{year_level}']
 
     # Call plots
     # Bar Plot
@@ -826,12 +935,20 @@ warnings.filterwarnings('ignore')
 keys = ['ID', 'StudentNameExternal']
 
 # For loop
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric):
+    display(Markdown(f"## Year {year_level} Results"))
+
+    # Key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
+
+    # Check for eanough data before clustering
+    if not has_maths or not has_reading:
+        display(Markdown("*Note: Clustering analysis requires both PAT Maths and Reading data. Skipping for this class.*\n"))
+        continue
 
     # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
+    df_maths_year = df_maths[year_key]
+    df_reading_year = df_reading[year_key]
     # Converting 'ID' column
     df_maths_year['ID'] = df_maths_year['ID'].astype(str)
     # Get class_CG again as the previous iteration was a locally created variable (i.e. only exists in the first for loop)
@@ -853,14 +970,14 @@ for year_level in sorted(year_levels_in_class):
     )
 
     # Subsetting
-    clustering_df = clusterin_df[['ID', 'StudentNameExternal', 'Maths_StudentYearLevel', 'Maths_Scale', 'Reading_Scale', 
+    clustering_df = clustering_df[['ID', 'StudentNameExternal', 'Maths_StudentYearLevel', 'Maths_Scale', 'Reading_Scale', 
                                 #'Spelling_Scale',
                                'Maths_Percentile', 'Reading_Percentile', 
                                 #'Spelling_Percentile'                            
     ]]
     # Adding WAM/GPA information
     clustering_df['WAM or GPA'] = clustering_df['ID'].map(
-        class_CG.set_index('Student ID')['WAM or GPA']
+        class_CG.set_index('Student ID')['WAMorGPA']
     )
 
     # Making dataframe for clustering analysis
@@ -885,7 +1002,7 @@ for year_level in sorted(year_levels_in_class):
         clustering_df['Cluster'] = -1
     else:
         # Only proceed with scaling and clustering if we have data
-        scaler = = StandardScaler()
+        scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
         # Running k-means++ (only on complete data)
@@ -976,7 +1093,6 @@ for year_level in sorted(year_levels_in_class):
                 print(tabulate(loadings.round(3), headers='keys', tablefmt='github'))
         else:
             print("No students with complete data for visualization")
-
 ```
 
 {{< pagebreak >}}
@@ -1001,12 +1117,20 @@ As a starting point, please find some helpful links here:
 #| tbl-colwidths: true
 
 # For loop
-for year_level in sorted(year_levels_in_class):
-    print(f"Year {year_level} Results")
+for year_level in sorted(year_levels_numeric): #sorted(year_levels_in_class):
+    display(Markdown(f"## Year {year_level} Results"))
+
+    # Key
+    year_key = f'Year{year_level}' # Converting back to 'Year7', 'Year10', etc.
+
+    # Check for eanough data before clustering
+    if not has_maths or not has_reading:
+        display(Markdown("*Note: Clustering analysis requires both PAT Maths and Reading data. Skipping for this class.*\n"))
+        continue
 
     # Filter data
-    df_maths_year = df_maths[df_maths['StudentYearLevel'] == year_level]
-    df_reading_year = df_reading[df_reading['StudentYearLevel'] == year_level]
+    df_maths_year = df_maths[year_key]
+    df_reading_year = df_reading[year_key]
     # Converting 'ID' column
     df_maths_year['ID'] = df_maths_year['ID'].astype(str)
     # Get class_CG again as the previous iteration was a locally created variable (i.e. only exists in the first for loop)
@@ -1028,14 +1152,14 @@ for year_level in sorted(year_levels_in_class):
     )
 
     # Subsetting
-    clustering_df = clusterin_df[['ID', 'StudentNameExternal', 'Maths_StudentYearLevel', 'Maths_Scale', 'Reading_Scale', 
+    clustering_df = clustering_df[['ID', 'StudentNameExternal', 'Maths_StudentYearLevel', 'Maths_Scale', 'Reading_Scale', 
                                 #'Spelling_Scale',
                                'Maths_Percentile', 'Reading_Percentile', 
                                 #'Spelling_Percentile'                            
     ]]
     # Adding WAM/GPA information
     clustering_df['WAM or GPA'] = clustering_df['ID'].map(
-        class_CG.set_index('Student ID')['WAM or GPA']
+        class_CG.set_index('Student ID')['WAMorGPA']
     )
 
     # Making dataframe for clustering analysis
@@ -1060,7 +1184,7 @@ for year_level in sorted(year_levels_in_class):
         clustering_df['Cluster'] = -1
     else:
         # Only proceed with scaling and clustering if we have data
-        scaler = = StandardScaler()
+        scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
         # Running k-means++ (only on complete data)
